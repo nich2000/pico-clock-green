@@ -9,6 +9,7 @@
 #include "hardware/adc.h"
 #include "Ds3231.h"
 #include "ziku.h"
+
 unsigned char month_date[2][12]={{31,29,31,30,31,30,31,31,30,31,30,31},
                                 {31,28,31,30,31,30,31,31,30,31,30,31}}; // Determining the number of days in a month in leap years and non-leap years 
 unsigned char disp_buf[112]; // Buffer bytes, corresponding to 24x8 points and scroll bytes 
@@ -16,8 +17,8 @@ unsigned char CS_cnt; // row select count
 unsigned char UP_id=0,UP_Key_flag=0,KEY_Set_flag=0,No_operation_flag=0,No_operation_count; // Trigger key detection 
 unsigned char adc_light_flag = 0,adc_light_time_flag = 0,light_set = 0;
 uint16_t adc_light,adc_light_count = 0; // Set automatic brightness 
-unsigned char set_id=0,update_time = 0,scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0;
-unsigned char alarm_id = 0,alarm_flag = 0,beep_sta = 1,beep_flag=0,beep_on_flag = 0,beep_on_count = 0,scroll_flag = 0,scroll_sta = 0,scroll_count = 0,scroll_start = 0; // buzzer & scroll 
+unsigned char set_id=0,update_time = 0,scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0, scroll_interval_time=60;
+unsigned char alarm_id = 0,alarm_flag = 0,beep_sta = 1,beep_flag=0,beep_on_flag = 0,beep_on_count = 0,scroll_flag = 0,scroll_sta = 1,scroll_count = 0,scroll_start = 0; // buzzer & scroll 
 unsigned  char alarm_hour_temp = 0,alarm_min_temp = 0,alarm_hour_flag = 0,alarm_min_flag = 0,alarm_day_select_flag = 0,alarm_day_select = 1;
 unsigned char Set_time_hour_flag = 0,Set_time_min_flag = 0,Set_time_year_flag = 0,Set_time_month_flag = 0,Set_time_dayofmonth_flag = 0,Set_hour_temp = 0,Set_min_temp = 0,change_time_flag = 0;
 unsigned char alarm_select_flag = 0,alarm_open_flag = 0,alarm_select_sta = 0,alarm_open_sta = 0,hour_temp,min_temp,year_temp,month_temp,dayofmonth_temp,year_high_temp = 20; // Alarm and time 
@@ -25,6 +26,7 @@ unsigned char Min_count=0,alarm_star_flag = 0,Timing_show_count = 0,Timing_show_
 uint16_t KEY_cnt=0,UP_cnt=0,Exit_cnt = 0,Flashing_count = 0,whole_year,adc_count = 0,write_flag = 0;
 unsigned char Timing_mode_flag = 0,Timing_mode_sta = 2,Timing_min_flag = 0,Timing_sec_flag = 0,Timing_min_temp = 0,Timing_sec_temp = 0,Timing_DN_flag = 0,Timing_UP_Key_flag = 0,Timing_DN_close_flag = 0; // timing
 unsigned char Time_set_mode_flag = 0,Time_set_mode_sta = 0,Full_time_flag = 0,Full_time_sta = 0,Full_time_alarm_count = 5; // Hourly time chime, time mode 
+unsigned char indicator_state = 0; // 0 - выключен, 1 - включён
 char Time_buf[4];
 unsigned char i,jr,save_buf,adc_show_flag = 0,adc_show_time = 6;
 TIME_RTC Time_RTC;
@@ -33,6 +35,7 @@ unsigned char flag_Flashing[11]={0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x
 unsigned char temp_high,temp_low,temp_sta = 0,get_add_high = 0x11,get_add_low = 0x12;
 void get_temperature();
 void display_char(unsigned char x,unsigned char dis_char); // Store the data that needs to be displayed 
+// void display_clock_tick(char tick);
 void send_data(unsigned char data); 
 void cls_disp(unsigned char x); // clear data 
 void select_weekday(unsigned char x); 
@@ -58,6 +61,7 @@ void beep_start_judge();
 void EXIT();
 void Special_Exit();
 struct repeating_timer timer2;
+
 int port_init(void) // GPIO initialization
 {
     stdio_init_all();
@@ -110,6 +114,7 @@ int port_init(void) // GPIO initialization
     adc_select_input(3);
 
 }
+
 int main(void)
 {
     port_init();
@@ -167,6 +172,7 @@ int main(void)
     return 0;
 
 }
+
 bool repeating_timer_callback_us(struct repeating_timer *t) // us
 {
     if(adc_light >3600)
@@ -200,7 +206,6 @@ bool repeating_timer_callback_us(struct repeating_timer *t) // us
         OE_OPEN;
     }
 }
-
 
 bool repeating_timer_callback_ms(struct repeating_timer *t) { // 1ms enter once
     unsigned char i;
@@ -415,8 +420,20 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) { // 1ms enter once
     }
     return true;
 }
+
 bool repeating_timer_callback_s(struct repeating_timer *t) // 1s enter once
 {
+    indicator_state = !indicator_state;
+    if(No_operation_flag == 0 && scroll_start_count == 0 && adc_show_time == 0){
+        // if(indicator_state) {
+        //     display_clock_tick(1);
+        //     // display_char(10,':');
+        // } else {
+        //     display_clock_tick(0);
+        //     // display_char(10,' ');
+        // }
+        Show_Time();
+    }
 
     Min_count++;
     if(alarm_star_flag == 1)
@@ -469,7 +486,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t) // 1s enter once
     {
         scroll_count = 0;
     }
-    if(scroll_count == 120 && set_id == 0) // scroll interval time
+    if(scroll_count == scroll_interval_time && set_id == 0) // scroll interval time
     {
         scroll_show_flag = 1;
         scroll_count = 0;
@@ -537,7 +554,6 @@ bool repeating_timer_callback_s(struct repeating_timer *t) // 1s enter once
     return true;
 }
 
-
 void show_adc()
 {
     const float conversion_factor = 3.3f / (1 << 12); // Calculate the voltage
@@ -558,13 +574,13 @@ void select_weekday(unsigned char x) // Display the day of the week
 {
     switch(x)
     {
-        case 0: Monday;DisTuesday;DisWednesday;DisThursday;DisFriday;DisSaturday;DisSunday;break;
-        case 1:DisMonday;Tuesday;DisWednesday;DisThursday;DisFriday;DisSaturday; DisSunday;break;
-        case 2:DisMonday;DisTuesday; Wednesday;DisThursday; DisFriday;DisSaturday;DisSunday;break;
-        case 3:DisMonday;DisTuesday;DisWednesday;Thursday;DisFriday;DisSaturday;DisSunday;break;
-        case 4: DisMonday;DisTuesday;DisWednesday;DisThursday;Friday;DisSaturday;DisSunday;break;
-        case 5:DisMonday;DisTuesday;DisWednesday;DisThursday;DisFriday;Saturday;DisSunday;break;
-        case 6:DisMonday;DisTuesday;DisWednesday; DisThursday;DisFriday;DisSaturday;Sunday;break;
+        case 6:   Monday;DisTuesday;DisWednesday;DisThursday;DisFriday;DisSaturday;DisSunday;break;
+        case 0:DisMonday;   Tuesday;DisWednesday;DisThursday;DisFriday;DisSaturday;DisSunday;break;
+        case 1:DisMonday;DisTuesday;   Wednesday;DisThursday;DisFriday;DisSaturday;DisSunday;break;
+        case 2:DisMonday;DisTuesday;DisWednesday;   Thursday;DisFriday;DisSaturday;DisSunday;break;
+        case 3:DisMonday;DisTuesday;DisWednesday;DisThursday;   Friday;DisSaturday;DisSunday;break;
+        case 4:DisMonday;DisTuesday;DisWednesday;DisThursday;DisFriday;   Saturday;DisSunday;break;
+        case 5:DisMonday;DisTuesday;DisWednesday; DisThursday;DisFriday;DisSaturday;  Sunday;break;
     }
 }
 
@@ -643,6 +659,31 @@ void display_char(unsigned char x,unsigned char dis_char)
     }
 }
 
+// void display_clock_tick(char tick)
+// {
+//     if(tick) {
+//         disp_buf[1*24+11] = 1;
+//         disp_buf[2*24+11] = 1;
+//         disp_buf[1*24+12] = 1;
+//         disp_buf[2*24+12] = 1;
+
+//         disp_buf[4*24+11] = 1;
+//         disp_buf[5*24+11] = 1;
+//         disp_buf[4*24+12] = 1;
+//         disp_buf[5*24+12] = 1;
+//     } else {
+//         disp_buf[1*24+11] = 0;
+//         disp_buf[2*24+11] = 0;
+//         disp_buf[1*24+12] = 0;
+//         disp_buf[2*24+12] = 0;
+
+//         disp_buf[4*24+11] = 0;
+//         disp_buf[5*24+11] = 0;
+//         disp_buf[4*24+12] = 0;
+//         disp_buf[5*24+12] = 0;
+//     }
+// }
+
 void Show_Time() // Display time
 {
     Time_RTC=Read_RTC(); // Get the value of RTC
@@ -694,7 +735,13 @@ void Show_Time() // Display time
     {
         display_char(0,Time_buf[0]);
         display_char(5,Time_buf[1]);
-        display_char(10,':');
+        if(indicator_state) {
+            // display_clock_tick(1);
+            display_char(10,':');
+        } else {
+            // display_clock_tick(0);
+            display_char(10,' ');
+        }
         display_char(13,Time_buf[2]);
         display_char(18,Time_buf[3]);
     }
@@ -707,6 +754,7 @@ void Show_Time() // Display time
     else select_weekday(6);
 
 }
+
 void dis_SetMode() 
 {
     if(set_id < 3) // set hour and minute
@@ -1090,6 +1138,7 @@ void get_temperature()
     i2c_read_blocking(I2C_PORT,Address, &temp_low,1,false);
     temp_low = (temp_low >> 6)*25; // Enlarge the resolution
 }
+
 void dis_scroll()
 {
     
@@ -1156,6 +1205,7 @@ void dis_scroll()
         disp_buf[i] = (disp_buf[i] & (~0x03)) | save_buf; // Restore function bit
     } 
 }
+
 // Determine the maximum number of days in a month
 unsigned char get_month_date(uint16_t year_cnt,uint8_t month_cnt)
 {
@@ -1197,6 +1247,7 @@ unsigned char get_month_date(uint16_t year_cnt,uint8_t month_cnt)
         }    
     }
 }
+
 // Determine the day of the week according to the year, month and day
 unsigned char get_weekday(uint16_t year_cnt,uint8_t month_cnt,uint8_t date_cnt)
 {
@@ -1218,12 +1269,14 @@ unsigned char get_weekday(uint16_t year_cnt,uint8_t month_cnt,uint8_t date_cnt)
         case 6 : return 6; break;
     }
 }
+
 uint16_t get_ads1015() // Get the value of the photosensitive sensor
 {
     adc_select_input(0);
     uint16_t value = adc_read();
 	return value;
 }
+
 void Alarm_set(uint8_t UP_DOWN_flag)
 {
 	if(alarm_hour_flag == 1) // The alarm clock can set the flag bit
@@ -1283,6 +1336,7 @@ void Alarm_set(uint8_t UP_DOWN_flag)
 		
 	}
 }
+
 void Timing_set(uint8_t UP_DOWN_flag)
 {
 	if(Timing_mode_flag == 1)
@@ -1355,6 +1409,7 @@ void Timing_set(uint8_t UP_DOWN_flag)
 		}
 	}
 }
+
 void Time_set(uint8_t UP_DOWN_flag)
 {
 	if(Set_time_hour_flag == 1) // hour setting
@@ -1471,6 +1526,7 @@ void Time_set(uint8_t UP_DOWN_flag)
 		}
 	}
 }
+
 void adc_show_count()
 {
 	if(adc_light_flag != 0)
@@ -1492,6 +1548,7 @@ void adc_show_count()
         }
     }
 }
+
 void beep_stop_judge()
 {
 	if(beep_on_flag == 1)
@@ -1505,6 +1562,7 @@ void beep_stop_judge()
         }
     }
 }
+
 void Flashing_start_judge()
 {
 	if(set_id != 0)
@@ -1524,6 +1582,7 @@ void Flashing_start_judge()
         }
     }
 }
+
 void scroll_show_judge()
 {
 	if(scroll_start == 1) // scroll every 3 minutes
@@ -1548,6 +1607,7 @@ void scroll_show_judge()
         scroll_start_count = 0;
     }
 }
+
 void EXIT()
 {
 	if(Set_time_hour_flag ==1 && change_time_flag == 1)
@@ -1606,6 +1666,7 @@ void EXIT()
 	Set_time_dayofmonth_flag = 0;
 	change_time_flag = 0;
 }
+
 void Special_Exit()
 {
 	No_operation_flag = 0;
@@ -1617,6 +1678,7 @@ void Special_Exit()
 	update_time = 1;
 	scroll_count = 0;
 }
+
 void beep_start_judge()
 {
 	if(beep_sta == 1)
