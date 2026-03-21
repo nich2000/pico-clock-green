@@ -12,37 +12,33 @@
 
 //-----define IO------------------------------
 
-#define	OE	13
-
+#define	OE	        13
 #define	OE_OPEN		gpio_put(OE, 0)
-
 #define	OE_CLOSE	gpio_put(OE, 1)
 
-#define	SDI	11
+#define	SDI	        11
 #define	SDI_LOW		gpio_put(SDI, 0)
 #define	SDI_HIGH	gpio_put(SDI, 1)
 
-#define	CLK	10
+#define	CLK	        10
 #define	CLK_LOW		gpio_put(CLK, 0)
 #define	CLK_HIGH	gpio_put(CLK, 1)
 
-#define	LE	12
+#define	LE	        12
 #define	LE_LOW		gpio_put(LE, 0)
 #define	LE_HIGH		gpio_put(LE, 1)
 
-#define	A0	16
+#define	A0	        16
 #define	A0_LOW		gpio_put(A0, 0)
 #define	A0_HIGH		gpio_put(A0, 1)
 
-#define	A1	18
+#define	A1	        18
 #define	A1_LOW		gpio_put(A1,0)
 #define	A1_HIGH		gpio_put(A1, 1)
 
-#define	A2	22
-
+#define	A2	        22
 #define	A2_LOW		gpio_put(A2, 0)
 #define	A2_HIGH		gpio_put(A2, 1)
-
 
 //define keys
 #define SET_FUNCTION 2
@@ -52,7 +48,6 @@
 #define DOWN 15
 #define SQW 3
 #define BUZZ 14
-
 
 #define ADC_Light 26
 #define ADC_VCC   29
@@ -67,6 +62,7 @@
 #define I2C_PORT i2c1
 #define Address 0x68
 #define Address_ADS 0x48
+
 typedef struct {
     uint8_t seconds;
     uint8_t minutes;
@@ -76,6 +72,7 @@ typedef struct {
     uint8_t month;
     uint8_t year;
 } TIME_RTC;
+
 typedef enum
 {
     ALARM_MODE_ALL_MATCHED = 0,
@@ -84,9 +81,8 @@ typedef enum
     ALARM_MODE_SEC_MATCHED,
     ALARM_MODE_ONCE_PER_SECOND
 } AlarmMode;
+
 //----------------Day of the week LED indicator definition -------------------------
-
-
 
 #define Monday          {disp_buf[0]|=(1<<3)|(1<<4);}
 #define DisMonday       {disp_buf[0] &= ~((1<<3)|(1<<4));}
@@ -102,6 +98,7 @@ typedef enum
 #define DisSaturday     {disp_buf[16]&= ~((1<<2)|(1<<3));}
 #define Sunday          {disp_buf[16]|=(1<<5)|(1<<6);}
 #define DisSunday       {disp_buf[16] &= ~((1<<5)|(1<<6));}
+
 //----------------Status LED Indicator Definitions -------------------------
 #define dis_move_open           disp_buf[0]|= 0X03
 #define dis_move_close          disp_buf[0] &= ~0X03
@@ -125,6 +122,5 @@ typedef enum
 #define dis_Auto_light_close    disp_buf[7] &= ~0X03
 #define back_light_on           disp_buf[0]|=(1<<2)|(1<<5)
 #define back_light_off          disp_buf[0]&=~((1<<2)|(1<<5))
-
 
 #endif
