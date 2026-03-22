@@ -93,7 +93,7 @@
 #define DisSunday               {disp_buf[16] &= ~((1<<5)|(1<<6));}
 
 //----------------Status LED Indicator Definitions -------------------------
-// Move On
+// Move On - scroll
 #define dis_move_open           disp_buf[0]|= 0X03
 #define dis_move_close          disp_buf[0] &= ~0X03
 // Alarm On

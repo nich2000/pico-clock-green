@@ -31,11 +31,14 @@ unsigned char UP_id=0,UP_Key_flag=0,KEY_Set_flag=0,No_operation_flag=0,No_operat
 uint16_t adc_light, adc_light_count = 0;  
 unsigned char adc_light_flag = 0, adc_light_time_flag = 0, light_set = 0;
 
+// Флаг необходимости отрисовать время
+unsigned char update_time = 0;
+
 // set_id = setting_id - активный элемент настроек
-unsigned char set_id=0,update_time = 0,scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0, scroll_interval_time=60;
+unsigned char set_id=0,scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0, scroll_interval_time=60;
 
 // buzzer & scroll 
-unsigned char alarm_id = 0,alarm_flag = 0,beep_sta = 1,beep_flag=0,beep_on_flag = 0,beep_on_count = 0,scroll_flag = 0,scroll_sta = 1,scroll_count = 0,scroll_start = 0; 
+unsigned char alarm_id = 0,alarm_flag = 0,beep_sta = 1,beep_flag=0,beep_on_flag = 0,beep_on_count = 0,scroll_flag = 0,scroll_sta = 0,scroll_count = 0,scroll_start = 0; 
 
 unsigned  char alarm_hour_temp = 0,alarm_min_temp = 0,alarm_hour_flag = 0,alarm_min_flag = 0,alarm_day_select_flag = 0,alarm_day_select = 1;
 
@@ -89,7 +92,9 @@ void dis_timing();
 // Alarm Mode Settings   
 void dis_alarm(); 
 // scroll 
-void dis_scroll(); 
+void dis_scroll();
+// Время 
+void dis_time();
 //
 uint16_t get_ads1015();
 // Get the month number of the current year
@@ -376,14 +381,16 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 }
             }
 
-            if(beep_flag == 1) // The key sound can set the flag bit 
+            // The key sound can set the flag bit 
+            if(beep_flag == 1)
             {
                 beep_sta = !beep_sta;
             }
             
             beep_start_judge();
 
-            if(scroll_flag == 1)// Scroll switch to set flag bit 
+            // The scroll switch can set the flag bit
+            if(scroll_flag == 1)
             {
                 scroll_sta = !scroll_sta;
                 if(scroll_sta != 0)
@@ -446,13 +453,17 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                     dis_Auto_light_close;
                 }
             }
-            if(beep_flag == 1) // The key sound can set the flag bit
-            {
 
+            // The key sound can set the flag bit
+            if(beep_flag == 1)
+            {
                 beep_sta = !beep_sta;
             }
+
             beep_start_judge();
-            if(scroll_flag == 1) // The scroll switch can set the flag bit
+            
+            // The scroll switch can set the flag bit
+            if(scroll_flag == 1)
             {
                 scroll_sta = !scroll_sta;
                 if(scroll_sta != 0)
@@ -464,13 +475,16 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                     dis_move_close;
                 }
             }
+
             if(Full_time_flag == 1)
             {
                 Full_time_sta = !Full_time_sta;
             }
+
 			alarm_set(DOWN_flag);
 			timing_set(DOWN_flag);
 			time_set(DOWN_flag);
+            
             Exit_cnt = 0;
         }
         
@@ -548,7 +562,8 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
     // Отрисовка часов
     indicator_state = !indicator_state;
     if(No_operation_flag == 0 && scroll_start_count == 0 && adc_show_time == 0){
-        dis_time();
+        // dis_time();
+        update_time = 1;
     }
 
     // Работа будильника
@@ -573,9 +588,9 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
             }
         }
 
-        if(No_operation_flag == 0 && scroll_start_count == 0 && adc_show_time == 0){
-            update_time = 1;
-        }
+        // if(No_operation_flag == 0 && scroll_start_count == 0 && adc_show_time == 0){
+        //     update_time = 1;
+        // }
 
         Min_count = 0;
         Full_time_alarm_count = 5;

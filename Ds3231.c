@@ -25,14 +25,17 @@ uint8_t REG_ADDRESSES[17] = {	 DS3231_REG_SECOND,
                                  DS3231_REG_CONTROL,
                                  DS3231_REG_HTEMP,
                                  DS3231_REG_LTEMP	};
+
 uint8_t BCD_to_Byte(uint8_t value)
 {
     return ((((value & 0xf0) >> 4) * 10) + (value & 0x0f));
 }
+
 uint8_t decToBcd(int val)
 {
     return (uint8_t)((val/10*16) + (val%10));
 }
+
 void ByteData()
 {
     DS3231_REG_Read();
@@ -53,6 +56,7 @@ void init_DS3231()
     val[1] = Status_default;
     i2c_write_blocking(I2C_PORT,Address,val,2,false);
 }
+
 void set_min(uint8_t min)
 {
     uint8_t setMin[3] = {0x00,0x00,0x00};
@@ -82,12 +86,14 @@ void set_dayofmouth(uint8_t dayofmouth)
     setDom[1] = decToBcd(dayofmouth);
     i2c_write_blocking(I2C_PORT,Address,setDom,2,false);
 }
+
 void set_dayofweekday(uint8_t dayofweek)
 {
     uint8_t setDow[2] = {0x03,0x00};
     setDow[1] = decToBcd(dayofweek);
     i2c_write_blocking(I2C_PORT,Address,setDow,2,false);
 }
+
 void set_month(uint8_t mouth)
 {
     uint8_t setMouth[2] = {0x05,0x00};
@@ -110,6 +116,7 @@ void Set_Time(uint8_t sec,uint8_t min,uint8_t hour, uint8_t dow,uint8_t dom,uint
 
 
 }
+
 TIME_RTC Read_RTC()
 {
     TIME_RTC timeRtc;
@@ -126,6 +133,7 @@ TIME_RTC Read_RTC()
     timeRtc.year=RTC_buf[6];
     return timeRtc;
 }
+
 void Ds3231_SQW_enable(bool enable)
 {
     uint8_t control;
@@ -145,7 +153,6 @@ void Ds3231_SQW_enable(bool enable)
     i2c_write_blocking(I2C_PORT,Address,val,2,false);
 
 }
-
 
 void Set_alarm1_clock(uint8_t mode,uint8_t sec,uint8_t min,uint8_t hour,uint8_t date)
 {
@@ -189,6 +196,7 @@ void Set_alarm1_clock(uint8_t mode,uint8_t sec,uint8_t min,uint8_t hour,uint8_t 
     i2c_write_blocking(I2C_PORT, Address,addr_reg_val, 2, false);
 
 }
+
 void  Set_alarm2_clock(uint8_t min,uint8_t hour,uint8_t date)
 {
     uint8_t alarmMinute = decToBcd(min);
@@ -206,6 +214,7 @@ void  Set_alarm2_clock(uint8_t min,uint8_t hour,uint8_t date)
     addr_reg_val[1] |= 0x04;
     i2c_write_blocking(I2C_PORT, Address,addr_reg_val, 2, false);
 }
+
 bool Ds3231_check_alarm()
 {
     uint8_t regVal[2] = {DS3231_REG_STATUS,0x00};
@@ -225,6 +234,7 @@ bool Ds3231_check_alarm()
     }
     return res;
 }
+
 void DS3231_REG_Read()
 {
     for (int i = 0; i < 16; i++)
@@ -233,6 +243,7 @@ void DS3231_REG_Read()
         i2c_read_blocking(I2C_PORT,Address, &DS3231_ReadReg[i],1,false);
     }
 }
+
 void FormatTime_mode() {
     ByteData();
 
