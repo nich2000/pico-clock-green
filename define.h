@@ -68,61 +68,61 @@
 
 //----------------
 // Back Light
-#define back_light_on           disp_buf[0]|=(1<<2)|(1<<5)
-#define back_light_off          disp_buf[0]&=~((1<<2)|(1<<5))
+#define back_light_on           display_buffer[0]|=(1<<2)|(1<<5)
+#define back_light_off          display_buffer[0]&=~((1<<2)|(1<<5))
 
 //----------------Day of the week LED indicator definition -------------------------
-#define Monday                  {disp_buf[0]|=(1<<3)|(1<<4);}
-#define DisMonday               {disp_buf[0] &= ~((1<<3)|(1<<4));}
+#define Monday                  {display_buffer[0]|=(1<<3)|(1<<4);}
+#define DisMonday               {display_buffer[0] &= ~((1<<3)|(1<<4));}
 
-#define Tuesday                 {disp_buf[0]|=(1<<6)|(1<<7);}
-#define DisTuesday              {disp_buf[0] &= ~((1<<6)|(1<<7));}
+#define Tuesday                 {display_buffer[0]|=(1<<6)|(1<<7);}
+#define DisTuesday              {display_buffer[0] &= ~((1<<6)|(1<<7));}
 
-#define Wednesday               {disp_buf[8]|=(1<<1)|(1<<2);}
-#define DisWednesday            {disp_buf[8] &= ~((1<<1)|(1<<2));}
+#define Wednesday               {display_buffer[8]|=(1<<1)|(1<<2);}
+#define DisWednesday            {display_buffer[8] &= ~((1<<1)|(1<<2));}
 
-#define Thursday                {disp_buf[8]|=(1<<4)|(1<<5);}
-#define DisThursday             {disp_buf[8] &= ~((1<<4)|(1<<5));}
+#define Thursday                {display_buffer[8]|=(1<<4)|(1<<5);}
+#define DisThursday             {display_buffer[8] &= ~((1<<4)|(1<<5));}
 
-#define Friday                  {disp_buf[8]|=(1<<7);disp_buf[16]|=(1<<0);}
-#define DisFriday               {disp_buf[8] &= ~(1<<7);disp_buf[16] &= ~(1<<0);}
+#define Friday                  {display_buffer[8]|=(1<<7);display_buffer[16]|=(1<<0);}
+#define DisFriday               {display_buffer[8] &= ~(1<<7);display_buffer[16] &= ~(1<<0);}
 
-#define Saturday                {disp_buf[16]|=(1<<2)|(1<<3);}
-#define DisSaturday             {disp_buf[16]&= ~((1<<2)|(1<<3));}
+#define Saturday                {display_buffer[16]|=(1<<2)|(1<<3);}
+#define DisSaturday             {display_buffer[16]&= ~((1<<2)|(1<<3));}
 
-#define Sunday                  {disp_buf[16]|=(1<<5)|(1<<6);}
-#define DisSunday               {disp_buf[16] &= ~((1<<5)|(1<<6));}
+#define Sunday                  {display_buffer[16]|=(1<<5)|(1<<6);}
+#define DisSunday               {display_buffer[16] &= ~((1<<5)|(1<<6));}
 
 //----------------Status LED Indicator Definitions -------------------------
 // Move On - scroll
-#define dis_move_on             disp_buf[0]|= 0X03
-#define dis_move_off            disp_buf[0] &= ~0X03
+#define dis_move_on             display_buffer[0]|= 0X03
+#define dis_move_off            display_buffer[0] &= ~0X03
 // Alarm On
-#define dis_alarm_on            disp_buf[1]|= 0X03
-#define dis_alarm_off           disp_buf[1] &= ~0x03
+#define dis_alarm_on            display_buffer[1]|= 0X03
+#define dis_alarm_off           display_buffer[1] &= ~0x03
 // CountDown
-#define dis_count_down_on       disp_buf[2]|= 0X03
-#define dis_count_down_off      disp_buf[2] &= ~0x03
+#define dis_count_down_on       display_buffer[2]|= 0X03
+#define dis_count_down_off      display_buffer[2] &= ~0x03
 // F
-#define dis_F_on                disp_buf[3]|= (1<<0)
-#define dis_F_off               disp_buf[3] &= ~(1<<0)
+#define dis_F_on                display_buffer[3]|= (1<<0)
+#define dis_F_off               display_buffer[3] &= ~(1<<0)
 // C
-#define dis_C_on                disp_buf[3]|= (1<<1)
-#define dis_C_off               disp_buf[3] &= ~(1<<1)
+#define dis_C_on                display_buffer[3]|= (1<<1)
+#define dis_C_off               display_buffer[3] &= ~(1<<1)
 // AM
-#define dis_AM_on               disp_buf[4]|=(1<<0)
-#define dis_AM_off              disp_buf[4] &= ~(1<<0)
+#define dis_AM_on               display_buffer[4]|=(1<<0)
+#define dis_AM_off              display_buffer[4] &= ~(1<<0)
 // PM
-#define dis_PM_on               disp_buf[4]|= (1<<1)
-#define dis_PM_off              disp_buf[4] &= ~(1<<1)
+#define dis_PM_on               display_buffer[4]|= (1<<1)
+#define dis_PM_off              display_buffer[4] &= ~(1<<1)
 // CountUp
-#define dis_count_up_on         disp_buf[5]|=0X03
-#define dis_count_up_off        disp_buf[5] &= ~0x03
+#define dis_count_up_on         display_buffer[5]|=0X03
+#define dis_count_up_off        display_buffer[5] &= ~0x03
 // Hourly
-#define dis_hourly_on           disp_buf[6]|= 0X03
-#define dis_hourly_off          disp_buf[6] &= ~0X03
+#define dis_hourly_on           display_buffer[6]|= 0X03
+#define dis_hourly_off          display_buffer[6] &= ~0X03
 // AutoLight
-#define dis_auto_light_on       disp_buf[7]|= 0X03
-#define dis_auto_light_off      disp_buf[7] &= ~0X03
+#define dis_auto_light_on       display_buffer[7]|= 0X03
+#define dis_auto_light_off      display_buffer[7] &= ~0X03
 
 #endif
