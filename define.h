@@ -44,9 +44,10 @@
 #define SDA          6
 #define SCL          7
 
-#define SET_FUNCTION 2
-#define UP           17
-#define DOWN         15
+#define SET_BUTTON   2
+#define UP_BUTTON    17
+#define DOWN_BUTTON  15
+
 #define SQW          3
 #define BUZZ         14
 
@@ -94,34 +95,34 @@
 
 //----------------Status LED Indicator Definitions -------------------------
 // Move On - scroll
-#define dis_move_open           disp_buf[0]|= 0X03
-#define dis_move_close          disp_buf[0] &= ~0X03
+#define dis_move_on             disp_buf[0]|= 0X03
+#define dis_move_off            disp_buf[0] &= ~0X03
 // Alarm On
-#define dis_Alarm_en            disp_buf[1]|= 0X03
-#define dis_Alarm_close         disp_buf[1] &= ~0x03
+#define dis_alarm_on            disp_buf[1]|= 0X03
+#define dis_alarm_off           disp_buf[1] &= ~0x03
 // CountDown
-#define dis_CountDown           disp_buf[2]|= 0X03
-#define dis_CountDown_close     disp_buf[2] &= ~0x03
+#define dis_count_down_on       disp_buf[2]|= 0X03
+#define dis_count_down_off      disp_buf[2] &= ~0x03
 // F
-#define dis_F_flag              disp_buf[3]|= (1<<0)
-#define dis_F_flag_close        disp_buf[3] &= ~(1<<0)
+#define dis_F_on                disp_buf[3]|= (1<<0)
+#define dis_F_off               disp_buf[3] &= ~(1<<0)
 // C
-#define dis_C_flag              disp_buf[3]|= (1<<1)
-#define dis_C_flag_close        disp_buf[3] &= ~(1<<1)
+#define dis_C_on                disp_buf[3]|= (1<<1)
+#define dis_C_off               disp_buf[3] &= ~(1<<1)
 // AM
-#define dis_AM                  disp_buf[4]|=(1<<0)
-#define dis_AM_close            disp_buf[4] &= ~(1<<0)
+#define dis_AM_on               disp_buf[4]|=(1<<0)
+#define dis_AM_off              disp_buf[4] &= ~(1<<0)
 // PM
-#define dis_PM                  disp_buf[4]|= (1<<1)
-#define dis_PM_close            disp_buf[4] &= ~(1<<1)
+#define dis_PM_on               disp_buf[4]|= (1<<1)
+#define dis_PM_off              disp_buf[4] &= ~(1<<1)
 // CountUp
-#define dis_CountUp             disp_buf[5]|=0X03
-#define dis_CountUp_close       disp_buf[5] &= ~0x03
+#define dis_count_up_on         disp_buf[5]|=0X03
+#define dis_count_up_off        disp_buf[5] &= ~0x03
 // Hourly
-#define dis_hourly_chime        disp_buf[6]|= 0X03
-#define dis_hourly_chime_close  disp_buf[6] &= ~0X03
+#define dis_hourly_on           disp_buf[6]|= 0X03
+#define dis_hourly_off          disp_buf[6] &= ~0X03
 // AutoLight
-#define dis_Auto_light          disp_buf[7]|= 0X03
-#define dis_Auto_light_close    disp_buf[7] &= ~0X03
+#define dis_auto_light_on       disp_buf[7]|= 0X03
+#define dis_auto_light_off      disp_buf[7] &= ~0X03
 
 #endif

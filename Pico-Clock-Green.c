@@ -34,8 +34,7 @@ unsigned char adc_light_flag = 0, adc_light_time_flag = 0, light_set = 0;
 // Флаг необходимости отрисовать время
 unsigned char update_time = 0;
 
-// set_id = setting_id - активный элемент настроек
-unsigned char set_id=0,scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0, scroll_interval_time=60;
+unsigned char setting_id=0, scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0, scroll_interval_time=60;
 
 // buzzer & scroll 
 unsigned char alarm_id = 0,alarm_flag = 0,beep_sta = 1,beep_flag=0,beep_on_flag = 0,beep_on_count = 0,scroll_flag = 0,scroll_sta = 0,scroll_count = 0,scroll_start = 0; 
@@ -45,11 +44,14 @@ unsigned  char alarm_hour_temp = 0,alarm_min_temp = 0,alarm_hour_flag = 0,alarm_
 unsigned char Set_time_hour_flag = 0,Set_time_min_flag = 0,Set_time_year_flag = 0,Set_time_month_flag = 0,Set_time_dayofmonth_flag = 0,Set_hour_temp = 0,Set_min_temp = 0,change_time_flag = 0;
 
 // Alarm and time 
-unsigned char alarm_select_flag = 0,alarm_open_flag = 0,alarm_select_sta = 0,alarm_open_sta = 0,hour_temp,min_temp,year_temp,month_temp,dayofmonth_temp,year_high_temp = 20; 
+unsigned char alarm_select_flag = 0, alarm_open_flag = 0, alarm_select_sta = 0, alarm_open_sta = 0, hour_temp, minute_temp, year_temp, month_temp, dayofmonth_temp, year_high_temp = 20; 
 
 unsigned char Min_count=0,alarm_start_flag = 0,Timing_show_count = 0,Timing_show_sec = 0;
 
-uint16_t KEY_cnt=0,UP_cnt=0,Exit_cnt = 0,Flashing_count = 0,whole_year,adc_count = 0,write_flag = 0;
+// Время нажатия на кнопки
+uint16_t set_press_cnt = 0, up_press_cnt = 0, down_press_cnt = 0;
+
+uint16_t Flashing_count = 0, whole_year, adc_count = 0, write_flag = 0;
 
 unsigned char Timing_mode_flag = 0,Timing_mode_sta = 2,Timing_min_flag = 0,Timing_sec_flag = 0,Timing_min_temp = 0,Timing_sec_temp = 0,Timing_DN_flag = 0,Timing_UP_Key_flag = 0,Timing_DN_close_flag = 0; // timing
 
@@ -67,7 +69,10 @@ TIME_RTC Time_RTC;
 
 unsigned char flag_Flashing[11]={0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 
-unsigned char temp_high,temp_low,temp_sta = 0,get_add_high = 0x11,get_add_low = 0x12;
+// Отображение температоры: 0 - выкл, 1 - Цельсий, 2 - Фаренгейт
+unsigned char temperature_unit = 0;
+
+unsigned char temp_high, temp_low, get_add_high = 0x11, get_add_low = 0x12;
 //=============================================================================
 // 
 void get_temperature();
@@ -101,8 +106,10 @@ uint16_t get_ads1015();
 unsigned char get_month_date(uint16_t year,uint8_t month_cnt); 
 // Kim Larson calculation formula: Weekday= (day+2*mon+3*(mon+1)/5+year+year/4-year /100+year/400) % 7
 unsigned char get_weekday(uint16_t year,uint8_t month_cnt,uint8_t date_cnt); 
-//
-void dis_adc();
+// Выводит напряжение на дисплей 
+void display_adc_vcc();
+// Отображение версии
+void display_version();
 //
 void alarm_set(uint8_t UP_DOWN_flag);
 //
@@ -141,9 +148,9 @@ int port_init(void)
     gpio_init(CLK);
     gpio_init(SQW);
     gpio_init(BUZZ);
-    gpio_init(SET_FUNCTION);
-    gpio_init(UP);
-    gpio_init(DOWN);
+    gpio_init(SET_BUTTON);
+    gpio_init(UP_BUTTON);
+    gpio_init(DOWN_BUTTON);
 
     gpio_set_dir(A0, GPIO_OUT);
     gpio_set_dir(A1, GPIO_OUT);
@@ -178,8 +185,6 @@ int port_init(void)
 int main(void)
 {
     port_init();
-
-    dis_C_flag;
 	
     struct repeating_timer timer;
     struct repeating_timer timer1;
@@ -191,18 +196,19 @@ int main(void)
     {
         if(adc_show_flag == 1)
         {
-            dis_adc();
-            adc_show_time --;
+            // display_adc_vcc();
+            display_version();
+            adc_show_time--;
             adc_show_flag = 0;
             if(adc_show_time == 0)
             {
                 update_time = 1;
-                gpio_set_dir(SET_FUNCTION,GPIO_IN);
-                gpio_set_dir(UP,GPIO_IN);
-                gpio_set_dir(DOWN,GPIO_IN);
-                gpio_pull_up(SET_FUNCTION);
-                gpio_pull_up(UP);
-                gpio_pull_up(DOWN);
+                gpio_set_dir(SET_BUTTON,GPIO_IN);
+                gpio_set_dir(UP_BUTTON,GPIO_IN);
+                gpio_set_dir(DOWN_BUTTON,GPIO_IN);
+                gpio_pull_up(SET_BUTTON);
+                gpio_pull_up(UP_BUTTON);
+                gpio_pull_up(DOWN_BUTTON);
             }
             
         }
@@ -306,18 +312,18 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
     scroll_show_judge();
 
     //=========================================================================
-    // Detect if the set button is pressed
-    if(gpio_get(SET_FUNCTION) == 0) 
+    // Кнопка нажата
+    if(gpio_get(SET_BUTTON) == 0) 
     {
-        KEY_cnt++;
+        set_press_cnt++;
     }
+    // Кнопка отпущена
     else
     {
-        // If it is less than 300ms, it is judged as a short press,
-        // and the short press of the setting key is a mode switch
-        if(KEY_cnt > 50 && KEY_cnt < 300)
+        // Короткое нажатие
+        if(set_press_cnt > 10 && set_press_cnt < 300)
         {
-            KEY_cnt = 0;
+            set_press_cnt = 0;
 
             // Enter the alarm setting mode
             if(alarm_id == 1)
@@ -334,50 +340,65 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
 
             beep_start_judge();
             EXIT();
-            set_id++;	
+
+            setting_id++;	
         }
         
-        // If it is greater than 300ms, it is judged as a long press
-        else if(KEY_cnt > 300 && set_id == 0)
+        // Длинное нажатие и НЕ настройки
+        else if(set_press_cnt > 300 && setting_id == 0)
         {
-            if(set_id == 0)
+            set_press_cnt = 0;
+
+            // НЕ настройки
+            if(setting_id == 0)
             {
-                set_id ++;
-                alarm_flag = 1;  // Long press the setting button to enter the alarm setting
+                setting_id++;
+                alarm_flag = 1;
                 alarm_id = 1;
             }
-            KEY_cnt = 0;
+
             beep_start_judge();
         }
         
-        else KEY_cnt = 0;
+        else set_press_cnt = 0;
     }
 
-    // +label
-    if(gpio_get(UP) == 0) 
+    // Кнопка нажата
+    if(gpio_get(UP_BUTTON) == 0) 
     {
-        UP_cnt++;
+        up_press_cnt++;
     }
+    // Кнопка отпущена
     else
     {
-        // If the time is less than 300ms, it is judged as a short press.
-        // Short press the + and - keys to change the state of the function. 
-        if(UP_cnt>50 && UP_cnt < 300)
+        // Короткое нажатие
+        if(up_press_cnt > 10 && up_press_cnt < 300)
         {
-            UP_cnt = 0;
+            up_press_cnt = 0;
+
             No_operation_count = 0;
-            if(set_id == 0)
+
+            // НЕ настройки
+            if(setting_id == 0)
             {
-                temp_sta = !temp_sta;
-                if(temp_sta == 0)
-                {
-                    dis_C_flag;
-                    dis_F_flag_close;
+                temperature_unit++;
+                if(temperature_unit > 2) {
+                    temperature_unit = 0;
                 }
-                else
+                switch (temperature_unit)
                 {
-                    dis_C_flag_close;
-                    dis_F_flag;
+                case 0:
+                    dis_C_off;
+                    dis_F_off;
+                    break;
+                case 1:
+                    dis_C_on;
+                    dis_F_off;
+                    break;
+                case 2:
+                    dis_C_off;
+                    dis_F_on;
+                    break;
                 }
             }
 
@@ -386,8 +407,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
             {
                 beep_sta = !beep_sta;
             }
-            
-            beep_start_judge();
 
             // The scroll switch can set the flag bit
             if(scroll_flag == 1)
@@ -395,62 +414,71 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 scroll_sta = !scroll_sta;
                 if(scroll_sta != 0)
                 {
-                    dis_move_open;
+                    dis_move_on;
                 }
                 else
                 {
-                    dis_move_close;
+                    dis_move_off;
                 }
             }
-
-            alarm_set(UP_flag);
-			timing_set(UP_flag);
-			time_set(UP_flag);
 
             if(Full_time_flag == 1)
             {
                 Full_time_sta = !Full_time_sta;
             }
+
+            beep_start_judge();
+
+            alarm_set(UP_flag);
+			timing_set(UP_flag);
+			time_set(UP_flag);
         }
         
-        else if(UP_cnt >300&&set_id == 0) // More than 300ms is judged as a long press 
+        // Длинное нажатие и НЕ настройки
+        else if(up_press_cnt > 300 && setting_id == 0)
         {
-            if(set_id == 0)
+            up_press_cnt = 0;
+
+            // НЕ настройки
+            if(setting_id == 0)
             {
+                setting_id++;
                 UP_Key_flag = 1;
                 UP_id = 1;
-                set_id ++ ;
             }
 
-            UP_cnt = 0;
             beep_start_judge();
         }
 
-        else UP_cnt = 0;
+        else up_press_cnt = 0;
     }
 
-    // -label
-    if(gpio_get(DOWN) == 0) 
+    // Кнопка нажата
+    if(gpio_get(DOWN_BUTTON) == 0) 
     {
-       Exit_cnt++;
+       down_press_cnt++;
     }
+    // Кнопка отпущена
     else
     {
-        // If it is less than 300ms, it is judged as a short press.
-        // Short press the + and - keys to change the state of the function
-        if(Exit_cnt>0&&Exit_cnt< 300)
+        // Короткое нажатие
+        if(down_press_cnt > 10 && down_press_cnt < 300)
         {
+            down_press_cnt = 0;
+
             No_operation_count = 0;
-            if(set_id == 0 ) // Auto brightness switch
+
+            // НЕ настройки Auto brightness switch
+            if(setting_id == 0)
             {
                 adc_light_flag = !adc_light_flag;
                 if(adc_light_flag !=0)
                 {
-                    dis_Auto_light;
+                    dis_auto_light_on;
                 }
                 else
                 {
-                    dis_Auto_light_close;
+                    dis_auto_light_off;
                 }
             }
 
@@ -459,8 +487,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
             {
                 beep_sta = !beep_sta;
             }
-
-            beep_start_judge();
             
             // The scroll switch can set the flag bit
             if(scroll_flag == 1)
@@ -468,11 +494,11 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 scroll_sta = !scroll_sta;
                 if(scroll_sta != 0)
                 {
-                    dis_move_open;
+                    dis_move_on;
                 }
                 else
                 {
-                    dis_move_close;
+                    dis_move_off;
                 }
             }
 
@@ -481,24 +507,25 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 Full_time_sta = !Full_time_sta;
             }
 
+            beep_start_judge();
+
 			alarm_set(DOWN_flag);
 			timing_set(DOWN_flag);
 			time_set(DOWN_flag);
-            
-            Exit_cnt = 0;
         }
         
-        // If it is longer than 300ms, it is judged as a long press. In any setting mode, you can exit the setting mode
-        else if(Exit_cnt >300&&set_id != 0)
+        // Длинное нажатие и настройки
+        else if(down_press_cnt > 300 && setting_id != 0)
         {
+            down_press_cnt = 0;
+
             beep_start_judge();
             special_exit();
             EXIT();
-			set_id = 0;
-            Exit_cnt = 0;
+			setting_id = 0;
         }
         
-        else  Exit_cnt = 0;
+        else  down_press_cnt = 0;
     }
 
     //=========================================================================
@@ -604,7 +631,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
         {
             special_exit();
             EXIT();
-			set_id = 0;
+			setting_id = 0;
             if(alarm_select_sta == 0 && alarm_open_sta !=0 && alarm_day_select_flag == 1)
             {
                 Set_alarm1_clock(ALARM_MODE_HOUR_MIN_SEC_MATCHED,00,alarm_min_temp,alarm_hour_temp,alarm_day_select);
@@ -627,7 +654,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
     }
 
     // scroll interval time
-    if(scroll_count == scroll_interval_time && set_id == 0) 
+    if(scroll_count == scroll_interval_time && setting_id == 0) 
     {
         scroll_show_flag = 1;
         scroll_count = 0;
@@ -684,7 +711,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
 
     if(Full_time_sta == 1)
     {
-        if(min_temp == 0 && Full_time_alarm_count >0)
+        if(minute_temp == 0 && Full_time_alarm_count > 0)
         {
             
             if(Full_time_alarm_count != 5)
@@ -692,7 +719,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
                 gpio_put(BUZZ,1);
                 beep_on_flag = 1;
             }
-            Full_time_alarm_count -- ;
+            Full_time_alarm_count--;
         }
     }
 
@@ -778,7 +805,7 @@ void display_char(unsigned char x,unsigned char dis_char)
 }
 
 // Выводит напряжение на дисплей 
-void dis_adc()
+void display_adc_vcc()
 {
     const float conversion_factor = 3.3f / (1 << 12); // Calculate the voltage
     uint16_t result = adc_read();
@@ -794,12 +821,22 @@ void dis_adc()
     display_char(17,'U');
 }
 
+// Отображение версии
+void display_version()
+{
+    display_char(0, '1');
+    display_char(5,'.');
+    display_char(7, '2');
+    display_char(12, '.');
+    display_char(14, '3');
+}
+
 // Переключение настроек
 void dis_set_mode() 
 {
-    if(set_id < 3) // set hour and minute
+    if(setting_id < 3) // set hour and minute
     {
-        if(set_id == 1)
+        if(setting_id == 1)
         {
             if(Set_time_hour_flag == 0)
             {
@@ -807,7 +844,7 @@ void dis_set_mode()
             }
             Set_time_hour_flag = 1;
         }
-        if(set_id == 2)
+        if(setting_id == 2)
         {
             if(Set_time_min_flag == 0)
             {
@@ -818,11 +855,11 @@ void dis_set_mode()
         display_char(0,(hour_temp/10+'0')&flag_Flashing[1]);
         display_char(5,(hour_temp%10+'0')&flag_Flashing[1]);
         display_char(10,':');
-        display_char(13,(min_temp/10+'0')&flag_Flashing[2]);
-        display_char(18,(min_temp%10+'0')&flag_Flashing[2]);
+        display_char(13,(minute_temp/10+'0')&flag_Flashing[2]);
+        display_char(18,(minute_temp%10+'0')&flag_Flashing[2]);
     }
 
-    else if(set_id == 3)
+    else if(setting_id == 3)
     {
         whole_year = year_high_temp*100 + year_temp;
         Set_time_year_flag = 1;
@@ -833,14 +870,14 @@ void dis_set_mode()
         display_char(23,' ');
     }
 
-    else if(set_id == 4 || set_id == 5)
+    else if(setting_id == 4 || setting_id == 5)
     {
         whole_year = year_high_temp*100 + year_temp;
-        if(set_id == 4)
+        if(setting_id == 4)
         {
             Set_time_month_flag  = 1;
         }
-        if(set_id == 5)
+        if(setting_id == 5)
         {
             Set_time_dayofmonth_flag = 1;
         }
@@ -851,12 +888,12 @@ void dis_set_mode()
         display_char(18,((dayofmonth_temp%10+0x30)&flag_Flashing[5]));
     }
 
-    else if(set_id == 6)
+    else if(setting_id == 6)
     {
         beep_flag  = 1;
         display_char(0,'B');
         display_char(5,'P');
-        display_char(10,':');
+        display_char(10,'.');
         display_char(13,('0'&flag_Flashing[6]));
         if(beep_sta == 1)
         {
@@ -871,12 +908,12 @@ void dis_set_mode()
 
     }
 
-    else if(set_id == 7)
+    else if(setting_id == 7)
     {
         scroll_flag = 1;
         display_char(0,'D');
         display_char(5,'P');
-        display_char(10,':');
+        display_char(10,'.');
         display_char(13,('0'&flag_Flashing[7]));
         if(scroll_sta != 0)
         {
@@ -889,7 +926,7 @@ void dis_set_mode()
         clear_display(26);
 
     }
-    else if(set_id == 8)
+    else if(setting_id == 8)
     {
         if(Time_set_mode_flag == 0)
         {
@@ -898,7 +935,7 @@ void dis_set_mode()
         Time_set_mode_flag = 1;
         display_char(0,'M');
         display_char(6,'D');
-        display_char(11,':');
+        display_char(11,'.');
         if(Time_set_mode_sta == 0)
         {
             display_char(14,'2'&flag_Flashing[8]);
@@ -911,22 +948,22 @@ void dis_set_mode()
         clear_display(23);
     }
 
-    else if(set_id == 9)
+    else if(setting_id == 9)
     {
         Full_time_flag = 1;
         display_char(0,'F');
         display_char(5,'T');
-        display_char(10,':');
+        display_char(10,'.');
         display_char(13,'0'&flag_Flashing[9]);
         if(Full_time_sta != 0)
         {
              display_char(18,'N'&flag_Flashing[9]);
-             dis_hourly_chime;
+             dis_hourly_on;
         }
         else
         {
              display_char(18,'F'&flag_Flashing[9]);
-             dis_hourly_chime_close;
+             dis_hourly_off;
         }
         clear_display(26);
     }
@@ -936,7 +973,7 @@ void dis_set_mode()
         No_operation_count = 0;
         No_operation_flag = 0;
         KEY_Set_flag = 0;
-        set_id = 0;
+        setting_id = 0;
         update_time = 1;
         beep_flag = 0;
         scroll_flag = 0;
@@ -946,13 +983,13 @@ void dis_set_mode()
 // Отобразить настройки будильника
 void dis_alarm()
 {
-    if(set_id == 1 || set_id == 2)
+    if(setting_id == 1 || setting_id == 2)
     {
-        if(set_id == 1)
+        if(setting_id == 1)
         {
           alarm_select_flag = 1;  
         }
-        if(set_id == 2)
+        if(setting_id == 2)
         {
             alarm_open_flag = 1;
         }
@@ -966,7 +1003,7 @@ void dis_alarm()
             display_char(5,'1'&flag_Flashing[1]);
         }
 
-        display_char(10,':');
+        display_char(10,'.');
         display_char(13,'0'&flag_Flashing[2]);
         if(alarm_open_sta != 0)
         {
@@ -980,13 +1017,13 @@ void dis_alarm()
         clear_display(26);
     }
 
-    else if(set_id == 3 || set_id == 4)
+    else if(setting_id == 3 || setting_id == 4)
     {
-        if(set_id == 3)
+        if(setting_id == 3)
         {
             alarm_hour_flag = 1;
         }
-        if(set_id == 4)
+        if(setting_id == 4)
         {
             alarm_min_flag = 1;
         }
@@ -999,7 +1036,7 @@ void dis_alarm()
 
     }
 
-    else if(set_id == 5)
+    else if(setting_id == 5)
     {
         alarm_day_select_flag = 1;
         if(alarm_day_select == 1)
@@ -1044,7 +1081,7 @@ void dis_alarm()
         }
         No_operation_count = 0;
         No_operation_flag = 0;
-        set_id = 0;
+        setting_id = 0;
         alarm_flag = 0;
         alarm_id = 0;
         update_time = 1;
@@ -1062,7 +1099,7 @@ void dis_alarm()
 // Отобразить настройки и работу отсчёта
 void dis_timing()
 {
-    if(set_id == 1)
+    if(setting_id == 1)
     {
         Timing_mode_flag = 1;
         display_char(0,'T');
@@ -1072,34 +1109,33 @@ void dis_timing()
         {
             display_char(13,'U'&flag_Flashing[1]);
             display_char(18,'P'&flag_Flashing[1]);
-            dis_CountUp;
-            dis_CountDown_close;
+            dis_count_up_on;
+            dis_count_down_off;
         }
         else if(Timing_mode_sta == 1)
         {
             display_char(13,'D'&flag_Flashing[1]);
             display_char(18,'N'&flag_Flashing[1]);
-            dis_CountDown;
-            dis_CountUp_close;
+            dis_count_down_on;
+            dis_count_up_off;
         }
         else if(Timing_mode_sta == 2)
         {
             display_char(13,'0'&flag_Flashing[1]);
             display_char(18,'F'&flag_Flashing[1]);
-            dis_CountDown_close;
-            dis_CountUp_close;
+            dis_count_down_off;
+            dis_count_up_off;
         }
         clear_display(26);
-
     }
 
-    else if(set_id == 2 || set_id == 3 && Timing_mode_sta != 2)
+    else if(setting_id == 2 || setting_id == 3 && Timing_mode_sta != 2)
     {
-        if(set_id == 2&& Timing_mode_sta == 1)
+        if(setting_id == 2&& Timing_mode_sta == 1)
         {
             Timing_min_flag  = 1;
         }
-        else if (set_id == 2 && Timing_mode_sta == 0) // Positive timing design
+        else if (setting_id == 2 && Timing_mode_sta == 0) // Positive timing design
         {
             if(Timing_UP_Key_flag == 0)
             {
@@ -1115,7 +1151,7 @@ void dis_timing()
             display_char(18,Timing_show_sec%10+'0');
             clear_display(26);
         }
-        if(set_id == 3&& Timing_mode_sta == 1)
+        if(setting_id == 3&& Timing_mode_sta == 1)
         {
             Timing_sec_flag = 1;
             Timing_DN_close_flag = 0;
@@ -1130,7 +1166,7 @@ void dis_timing()
             clear_display(26);
             Timing_show_sec = Timing_sec_temp;
         }
-        if(Timing_mode_sta == 0 && set_id == 3) // Turn off positive timing
+        if(Timing_mode_sta == 0 && setting_id == 3) // Turn off positive timing
         {
             display_char(0,Timing_min_temp/10+'0');
             display_char(5,Timing_min_temp%10+'0');
@@ -1144,7 +1180,7 @@ void dis_timing()
         }
     }
 
-    else if(set_id == 4 && Timing_mode_sta == 1 && Timing_DN_close_flag == 0 && Timing_mode_sta != 2) // Countdown display
+    else if(setting_id == 4 && Timing_mode_sta == 1 && Timing_DN_close_flag == 0 && Timing_mode_sta != 2) // Countdown display
     {
         No_operation_count = 0;
         Timing_DN_flag = 1;
@@ -1162,11 +1198,11 @@ void dis_timing()
             Timing_mode_sta = 2;
             Timing_min_temp = 0;
             Timing_sec_temp = 0;
-            dis_CountUp_close;
+            dis_count_up_off;
         }
         No_operation_count = 0;
         No_operation_flag = 0;
-        set_id = 0;
+        setting_id = 0;
         UP_id = 0;
         UP_Key_flag = 0;
         update_time = 1;
@@ -1192,7 +1228,7 @@ void dis_time()
     Time_RTC.dayofmonth = Time_RTC.dayofmonth&0x3F;
     Time_RTC.month = Time_RTC.month&0x1F;
     Set_hour_temp = BCD_to_Byte(Time_RTC.hour);
-    min_temp = BCD_to_Byte(Time_RTC.minutes);
+    minute_temp = BCD_to_Byte(Time_RTC.minutes);
     dayofmonth_temp = BCD_to_Byte(Time_RTC.dayofmonth);
     month_temp = BCD_to_Byte(Time_RTC.month);
     year_temp = BCD_to_Byte(Time_RTC.year);
@@ -1203,19 +1239,19 @@ void dis_time()
         if(Set_hour_temp > 12)
         {
             hour_temp = Set_hour_temp -12;
-            dis_PM;
-            dis_AM_close;
+            dis_PM_on;
+            dis_AM_off;
         }
         else if(Set_hour_temp == 12)
         {
-            dis_PM;
-            dis_AM_close;
+            dis_PM_on;
+            dis_AM_off;
         }
         else
         {
             hour_temp = Set_hour_temp;
-            dis_AM;
-            dis_PM_close;
+            dis_AM_on;
+            dis_PM_off;
         }        
     }
     else
@@ -1270,7 +1306,8 @@ void dis_scroll()
         display_char(65,'-');
         display_char(68,Time_RTC.dayofmonth/16+'0');
         display_char(73,Time_RTC.dayofmonth%16+'0');
-        if(temp_sta == 0)
+
+        if(temperature_unit == 1)
         {
             display_char(80, temp_high/10+0x30);
             display_char(85, temp_high%10+0x30);
@@ -1279,11 +1316,11 @@ void dis_scroll()
             display_char(97, temp_low%10+0x30);
             display_char(102,'C');
         }
-        else
+        else if (temperature_unit == 2)
         {
             unsigned char T = temp_high*9/5 +32;
             if(T>=100)T=99;
-             display_char(80, T/10+0x30);
+            display_char(80, T/10+0x30);
             display_char(85, T%10+0x30);
             display_char(90, '.');
             display_char(92, temp_low/10+0x30);
@@ -1293,6 +1330,7 @@ void dis_scroll()
         
         scroll_show_flag = 0;
     }
+
     if(scroll_show_start == sizeof(disp_buf)-36)
     {
         display_char(32,' ');
@@ -1304,6 +1342,7 @@ void dis_scroll()
         display_char(49,Time_RTC.minutes/16+0x30);
         display_char(54,Time_RTC.minutes%16+0x30);
     }
+
     for(i=1;i<8;i++)
     {
        save_buf = disp_buf[i] & 0x03; // Retain function bits
@@ -1400,6 +1439,7 @@ void alarm_set(uint8_t UP_DOWN_flag)
 		    if(alarm_hour_temp == 255)alarm_hour_temp = 23;
         }   	
 	}
+
 	if(alarm_min_flag == 1)
 	{
         if(UP_DOWN_flag == UP_flag)
@@ -1413,22 +1453,25 @@ void alarm_set(uint8_t UP_DOWN_flag)
 		    if(alarm_min_temp == 255)alarm_min_temp = 59;
         }
 	}
+
 	if(alarm_open_flag == 1) // The alarm switch can set the flag bit
 	{
 		alarm_open_sta = !alarm_open_sta;
 		if(alarm_open_sta != 0)
 		{
-			dis_Alarm_en;
+			dis_alarm_on;
 		}
 		else
 		{
-			dis_Alarm_close;
+			dis_alarm_off;
 		}
 	}
+
 	if(alarm_select_flag == 1) // The alarm clock selection can set the flag bit
 	{
 		alarm_select_sta = ! alarm_select_sta;
 	}
+
 	if(alarm_day_select_flag == 1)
 	{
         if(UP_DOWN_flag == UP_flag)
@@ -1462,6 +1505,7 @@ void timing_set(uint8_t UP_DOWN_flag)
         }
 		
 	}
+
 	if(Timing_mode_sta == 1 && Timing_min_flag == 1)
 	{
 		if(UP_DOWN_flag == UP_flag)
@@ -1475,6 +1519,7 @@ void timing_set(uint8_t UP_DOWN_flag)
 			if(Timing_min_temp == 255)Timing_min_temp = 59;
 		}
 	}
+
 	if(Timing_mode_sta == 1 && Timing_sec_flag == 1)
 	{
 		if(UP_DOWN_flag == UP_flag)
@@ -1488,32 +1533,32 @@ void timing_set(uint8_t UP_DOWN_flag)
 			if(Timing_sec_temp == 255)Timing_sec_temp = 59;
 		}
 	}
+
 	if(Time_set_mode_flag == 1) // time mode setting
 	{
 		Time_set_mode_sta = !Time_set_mode_sta;
 		if(Time_set_mode_sta == 0)
 		{
-			dis_AM_close;
-			dis_PM_close;
+			dis_AM_off;
+			dis_PM_off;
 		}
 		else
 		{
-			
 			if(Set_hour_temp > 12)
 			{
 				hour_temp = Set_hour_temp - 12;
-				dis_PM;
-				dis_AM_close;
+				dis_PM_on;
+				dis_AM_off;
 			}
 			else if(Set_hour_temp == 12)
 			{
-				dis_PM;
-				dis_AM_close;
+				dis_PM_on;
+				dis_AM_off;
 			}
 			else
 			{
-				dis_AM;
-				dis_PM_close;
+				dis_AM_on;
+				dis_PM_off;
 			}
 		}
 	}
@@ -1541,20 +1586,20 @@ void time_set(uint8_t UP_DOWN_flag)
 			if(Set_hour_temp > 12)
 			{
 				hour_temp = Set_hour_temp -12;
-				dis_PM;
-				dis_AM_close;
+				dis_PM_on;
+				dis_AM_off;
 			}
 			else if(Set_hour_temp == 12)
 			{
 				hour_temp = Set_hour_temp;
-				dis_PM;
-				dis_AM_close;
+				dis_PM_on;
+				dis_AM_off;
 			}
 			else
 			{
 				hour_temp = Set_hour_temp;
-				dis_AM;
-				dis_PM_close;
+				dis_AM_on;
+				dis_PM_off;
 			}
 				
 		}
@@ -1563,6 +1608,7 @@ void time_set(uint8_t UP_DOWN_flag)
 			hour_temp = Set_hour_temp;
 		}
 	}
+
 	if(Set_time_min_flag == 1) // minute design
 	{
 		change_time_flag = 1;
@@ -1576,8 +1622,9 @@ void time_set(uint8_t UP_DOWN_flag)
 			Set_min_temp--;
 			if(Set_min_temp == 255)Set_min_temp = 59;
 		}
-		min_temp = Set_min_temp;
+		minute_temp = Set_min_temp;
 	}
+
 	if(Set_time_year_flag == 1)
 	{
 		change_time_flag = 1;
@@ -1601,6 +1648,7 @@ void time_set(uint8_t UP_DOWN_flag)
 		}
 		
 	}
+
 	if(Set_time_month_flag == 1)
 	{
 		change_time_flag = 1;
@@ -1615,6 +1663,7 @@ void time_set(uint8_t UP_DOWN_flag)
 			if(month_temp == 0) month_temp = 12;
 		}
 	}
+
 	if(Set_time_dayofmonth_flag == 1)
 	{
 		change_time_flag = 1;
@@ -1688,13 +1737,13 @@ void beep_stop_judge()
 //
 void flashing_start_judge()
 {
-	if(set_id != 0)
+	if(setting_id != 0)
 	{
         Flashing_count ++;
         if(Flashing_count == 600)
         {
             Flashing_count = 0;
-            flag_Flashing[set_id] = ~flag_Flashing[set_id];
+            flag_Flashing[setting_id] = ~flag_Flashing[setting_id];
 
             if(alarm_id == 1)
                 alarm_flag = 1;
@@ -1765,7 +1814,7 @@ void EXIT()
 		set_dayofweekday(get_weekday(whole_year,month_temp,dayofmonth_temp));
 		select_weekday(get_weekday(whole_year,month_temp,dayofmonth_temp)-1);
 	}
-    flag_Flashing[set_id] = 0xff;
+    flag_Flashing[setting_id] = 0xff;
     if(alarm_min_flag == 1) // prevent showing empty 
     {
         display_char(13,(alarm_min_temp/10+'0')&flag_Flashing[4]);
