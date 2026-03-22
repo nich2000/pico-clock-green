@@ -4,13 +4,15 @@
 
 #ifndef PICO_EXAMPLES_DS3231_H
 #define PICO_EXAMPLES_DS3231_H
+
 #include "stdio.h"
 #include "hardware/i2c.h"
-#include "define.h"
 #include "string.h"
 
-#define DS3231_REG_SECOND 	0x00
-#define DS3231_REG_MINUTE 	0x01
+#include "define.h"
+
+#define DS3231_REG_SECOND 	    0x00
+#define DS3231_REG_MINUTE 	    0x01
 #define DS3231_REG_HOUR 		0x02
 #define DS3231_REG_DAY 			0x03
 #define DS3231_REG_DATE 		0x04
@@ -23,16 +25,36 @@
 #define	DS3231_REG_A2M 			0x0B
 #define	DS3231_REG_A2H			0x0C
 #define DS3231_REG_A2D			0x0D
-#define DS3231_REG_CONTROL  0X0E
+#define DS3231_REG_CONTROL      0X0E
 #define DS3231_REG_HTEMP		0x11
 #define DS3231_REG_LTEMP		0x12
 #define DS3231_REG_STATUS       0x0F
 #define DS3231_STA_A1F          0x01
 #define DS3231_STA_A2F          0x02
 #define	Control_default	        0x20
+
 // Start the timer, turn off the battery-powered square wave enable, force the temperature conversion to start,
 // the SQW pin outputs a 1Hz square wave, and turn off the alarm clock interrupt enable 
-#define	Status_default		0x00	// Turn off the 32.768K square wave output and clear the alarm flag 
+#define	Status_default		    0x00	// Turn off the 32.768K square wave output and clear the alarm flag 
+
+typedef enum
+{
+    ALARM_MODE_ALL_MATCHED = 0,
+    ALARM_MODE_HOUR_MIN_SEC_MATCHED,
+    ALARM_MODE_MIN_SEC_MATCHED,
+    ALARM_MODE_SEC_MATCHED,
+    ALARM_MODE_ONCE_PER_SECOND
+} AlarmMode;
+
+typedef struct {
+    uint8_t seconds;
+    uint8_t minutes;
+    uint8_t hour;
+    uint8_t dayofweek;
+    uint8_t dayofmonth;
+    uint8_t month;
+    uint8_t year;
+} TIME_RTC;
 
 TIME_RTC Read_RTC();
 
@@ -60,4 +82,5 @@ void set_year(uint8_t year);
 void set_dayofweekday(uint8_t dayofweek);
 void set_dayofmouth(uint8_t dayofmouth);
 void set_month(uint8_t mouth);
+
 #endif //PICO_EXAMPLES_DS3231_H

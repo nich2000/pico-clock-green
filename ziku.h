@@ -3,6 +3,7 @@
 //
 #ifndef _ZIKU_H
 #define _ZIKU_H
+
 // Modulo method: negative code, reverse, progressive, 4X7 font
 const unsigned char ZIKU[]={
         //0
@@ -281,6 +282,7 @@ const unsigned char ZIKU[]={
 //0b00010101,
 //0b00011011,
 //0b00010001,
+
 //The following is the nixie tube font
         //0
         0b00001111,
@@ -560,4 +562,5 @@ const unsigned char ZIKU[]={
 //0b00011011,
 //0b00010001,
 };
+
 #endif

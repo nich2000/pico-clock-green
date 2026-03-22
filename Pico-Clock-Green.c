@@ -7,6 +7,8 @@
  */
 #include "hardware/i2c.h"
 #include "hardware/adc.h"
+
+#include "define.h"
 #include "Ds3231.h"
 #include "ziku.h"
 //=============================================================================
@@ -19,16 +21,15 @@ unsigned char month_date[2][12]={{31,29,31,30,31,30,31,31,30,31,30,31},
 // Buffer bytes, corresponding to 24x8 points and scroll bytes 
 unsigned char disp_buf[112]; 
 
-// row select count 
-unsigned char CS_cnt;
+// Current row for drawing 
+unsigned char row_select = 0;
 
 // Trigger key detection 
 unsigned char UP_id=0,UP_Key_flag=0,KEY_Set_flag=0,No_operation_flag=0,No_operation_count; 
 
-unsigned char adc_light_flag = 0,adc_light_time_flag = 0,light_set = 0;
-
 // Set automatic brightness
-uint16_t adc_light,adc_light_count = 0;  
+uint16_t adc_light, adc_light_count = 0;  
+unsigned char adc_light_flag = 0, adc_light_time_flag = 0, light_set = 0;
 
 // set_id = setting_id - активный элемент настроек
 unsigned char set_id=0,update_time = 0,scroll_start_count = 0,scroll_show_flag = 0,scroll_show_start =0, scroll_interval_time=60;
@@ -236,21 +237,24 @@ int main(void)
 }
 
 // Send data function
+// функция реализует последовательную передачу одного байта данных по SPI-совместимому протоколу
 void send_data(unsigned char data) 
 {
     unsigned char i;
-    for(i=0;i<8;i++)
+    for(i = 0; i < 8; i++)
     {
         CLK_LOW;
 
         SDI_LOW;
 
-        if(data&0x01)
+        if(data & 0x01)
+        {
             SDI_HIGH;
-        data>>=1;
+        }
+
+        data >>= 1;
 
         CLK_HIGH;
-
     }
 }
 
@@ -291,13 +295,12 @@ bool repeating_timer_callback_us(struct repeating_timer *t)
 
 // 1ms enter once
 bool repeating_timer_callback_ms(struct repeating_timer *t) {
-    unsigned char i;
-	
     adc_show_count(); 
     beep_stop_judge();
     flashing_start_judge(); 
     scroll_show_judge();
 
+    //=========================================================================
     // Detect if the set button is pressed
     if(gpio_get(SET_FUNCTION) == 0) 
     {
@@ -484,17 +487,12 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         else  Exit_cnt = 0;
     }
 
-    CS_cnt++;
-    if(CS_cnt>7)
-    {
-        CS_cnt=0;
-    }
-
+    //=========================================================================
+    // AutoLight
     if(adc_light_flag != 0 && adc_light_time_flag == 1)
     {
         cancel_repeating_timer(&timer2);
         OE_CLOSE;
-
     }
     else
     {
@@ -506,20 +504,31 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         OE_CLOSE;
     }
 
-    for(i=0;i<4;i++)
+    // row select - 0 - 7
+    row_select++;
+    if(row_select > 7)
     {
-        send_data(disp_buf[8*i+CS_cnt]);
+        row_select = 0;
     }
 
+    // Draw one row - 4 bytes - 32 bits
+    unsigned char i;
+    for(i = 0; i < 4; i++)
+    {
+        send_data(disp_buf[8 * i + row_select]);
+    }
+
+    // Do draw one row - Latch Enable
     LE_HIGH;
     LE_LOW;
 
-    if(CS_cnt&0x01)A0_HIGH; else A0_LOW;
+    if(row_select & 0x01)A0_HIGH; else A0_LOW;
 
-    if(CS_cnt&0x02)A1_HIGH; else A1_LOW;
+    if(row_select & 0x02)A1_HIGH; else A1_LOW;
 
-    if(CS_cnt&0x04)A2_HIGH; else A2_LOW;
+    if(row_select & 0x04)A2_HIGH; else A2_LOW;
 
+    // AutoLight
     if(adc_light_flag != 0)
     {
         adc_light_time_flag = 1;
@@ -695,9 +704,9 @@ void clear_display(unsigned char x)
 {
     do
     {
-        display_char(x,' ');
-        x+=8;
-    } while(x<sizeof(disp_buf));
+        display_char(x, ' ');
+        x += 8;
+    } while(x < sizeof(disp_buf));
 }
 
 // Отображение одного символа
@@ -707,10 +716,13 @@ void display_char(unsigned char x,unsigned char dis_char)
     x+=disp_offset; // Add the offset of the status indicator
     j=x/8; // The number of the dot matrix to be displayed
     k=x%8; // Start to display at the first bit
+
     if((dis_char>='0')&&(dis_char<='9'))
         dis_char-=0x30;
+
     else if((dis_char>='A')&&(dis_char<='F'))
         dis_char-=0x37;
+
     else switch(dis_char)
         {
             case 'H':dis_char=16;break;
@@ -730,22 +742,23 @@ void display_char(unsigned char x,unsigned char dis_char)
                 //case 'V':dis_char=28;break;
                 //case 'W':dis_char=29;break;
         }
+
     for(i=1;i<8;i++)
     {
         if(k>0)
         {
+            // reserve required data bits
+            disp_buf[8*j+i]=(disp_buf[8*j+i]&(0xff>>(8-k)))|((ZIKU[dis_char*7+i-1])<<k);
 
-            disp_buf[8*j+i]=(disp_buf[8*j+i]&(0xff>>(8-k)))|((ZIKU[dis_char*7+i-1])<<k); // reserve required data bits
             if(j<(sizeof(disp_buf)/8)-1){
                 disp_buf[8*j+8+i]=(disp_buf[8*j+8+i]&(0xff<<(8-k)))|((ZIKU[dis_char*7+i-1])>>(8-k));
-
             }
-
         }
 
         else
+        {
             disp_buf[8*j+i]=(ZIKU[dis_char*7+i-1]);
-
+        }
     }
 }
 
