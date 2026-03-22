@@ -11,6 +11,7 @@
 #include "define.h"
 #include "Ds3231.h"
 #include "ziku.h"
+#include "clock_tcp.h"
 //=============================================================================
 #define BAUD_RATE 115200
 //=============================================================================
@@ -98,6 +99,8 @@ unsigned char flag_Flashing[11]={0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x
 unsigned char temperature_unit = 0;
 
 unsigned char temp_high, temp_low, get_add_high = 0x11, get_add_low = 0x12;
+
+extern app_state_t state;
 //=============================================================================
 // 
 void get_temperature();
@@ -211,9 +214,14 @@ int main(void)
 {
     port_init();
 
-    sleep_ms(2000);
-
     printf("Hello, Pico!\n");
+
+    if (cyw43_arch_init()) {
+        printf("WiFi init failed\n");
+        return -1;
+    }
+
+    cyw43_arch_enable_sta_mode();
 
     beep_state = 1;
 
@@ -292,8 +300,52 @@ int main(void)
             }
             break;
         }
+
+        switch (state)
+        {
+            case WIFI_DISCONNECTED:
+                if (wifi_connect()) {
+                    state = WIFI_CONNECTED;
+                } else {
+                    sleep_ms(RECONNECT_DELAY_MS);
+                }
+                break;
+
+            case WIFI_CONNECTED:
+                if (tcp_client_connect()) {
+                    // state -> TCP_CONNECTING внутри
+                } else {
+                    sleep_ms(RECONNECT_DELAY_MS);
+                }
+                break;
+
+            case TCP_CONNECTED:
+                // проверка линка WiFi
+                if (!cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA)) {
+                    printf("WiFi lost\n");
+                    state = WIFI_DISCONNECTED;
+                }
+                break;
+
+            case TCP_DISCONNECTED:
+                printf("Reconnecting TCP...\n");
+                sleep_ms(RECONNECT_DELAY_MS);
+                state = WIFI_CONNECTED;
+                break;
+
+            case TCP_CONNECTING:
+                // ждём callback
+                break;
+
+            default:
+                break;
+        }
+
+        cyw43_arch_poll();
+        sleep_ms(50);
     }
 
+    cyw43_arch_deinit();
     return 0;
 }
 

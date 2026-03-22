@@ -18,26 +18,37 @@ set(PICO_BOARD pico_w CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.16)
 
-# include($ENV{PICO_SDK_PATH}/pico_sdk_init.cmake)
 include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
-# project(Pico-Clock-Green)
 project(Pico-Clock-Green C CXX ASM)
 
 pico_sdk_init()
 
 add_executable(Pico-Clock-Green
         Pico-Clock-Green.c
-        Ds3231.c Ds3231.h)
+        Ds3231.c Ds3231.h
+        clock_tcp.c clock_tcp.h)
 
-# Pull in our pico_stdlib which pulls in commonly used features
-target_link_libraries(Pico-Clock-Green pico_stdlib hardware_i2c hardware_adc)
+target_link_libraries(Pico-Clock-Green pico_stdlib hardware_i2c hardware_adc pico_cyw43_arch_lwip_poll)
 
-# create map/bin/hex file etc.
 pico_add_extra_outputs(Pico-Clock-Green)
 
-# add url via pico_set_program_url
-#example_auto_set_url(Pico-Clock-Green)
+target_include_directories(Pico-Clock-Green PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+file(READ "${CMAKE_CURRENT_LIST_DIR}/.env" ENV_FILE)
+
+string(REGEX MATCH "WIFI_SSID=([^\n]+)" _ ${ENV_FILE})
+set(WIFI_SSID ${CMAKE_MATCH_1})
+
+string(REGEX MATCH "WIFI_PASSWORD=([^\n]+)" _ ${ENV_FILE})
+set(WIFI_PASSWORD ${CMAKE_MATCH_1})
+
+target_compile_definitions(Pico-Clock-Green PRIVATE
+    WIFI_SSID=\"${WIFI_SSID}\"
+    WIFI_PASSWORD=\"${WIFI_PASSWORD}\"
+)
 
 pico_enable_stdio_usb(Pico-Clock-Green 1)
 pico_enable_stdio_uart(Pico-Clock-Green 0)
