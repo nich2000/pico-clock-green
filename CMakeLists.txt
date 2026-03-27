@@ -25,7 +25,7 @@ project(Pico-Clock-Green C CXX ASM)
 pico_sdk_init()
 
 add_executable(Pico-Clock-Green
-        Pico-Clock-Green.c
+        Pico-Clock-Green.c Pico-Clock-Green.h
         Ds3231.c Ds3231.h
         clock_tcp.c clock_tcp.h)
 

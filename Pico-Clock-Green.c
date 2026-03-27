@@ -12,6 +12,7 @@
 #include "Ds3231.h"
 #include "ziku.h"
 #include "clock_tcp.h"
+#include "Pico-Clock-Green.h"
 //=============================================================================
 #define BAUD_RATE 115200
 //=============================================================================
@@ -26,14 +27,14 @@ unsigned char display_buffer[112];
 unsigned char row_select = 0;
 
 // Trigger key detection 
-unsigned char UP_id=0, UP_Key_flag=0, KEY_Set_flag=0, no_operation_flag = false, no_operation_counter; 
+unsigned char UP_id=0, UP_key_flag=0, SET_key_flag=0, no_operation_flag = false, no_operation_counter; 
 
 // Set automatic brightness
 uint16_t adc_light, adc_light_count = 0;  
 unsigned char adc_light_flag = 0, adc_light_time_flag = 0, light_set = 0;
 
-// Флаг необходимости отрисовать время
-unsigned char update_time = 0;
+// Флаг необходимости обновить данные
+unsigned char update_display = 0;
 
 unsigned char setting_id=0;
 
@@ -42,10 +43,9 @@ unsigned char beep_state = 0, beep_flag = 0, beep_on_flag = 0, beep_on_step = 0,
 
 // scroll 
 unsigned char scroll_flag = 0, scroll_state = 0, scroll_count = 0, 
-    scroll_start = 0, scroll_start_count = 0, scroll_speed = 150,
+    scroll_start = 0, scroll_start_counter = 0, scroll_speed = 150,
     scroll_show_flag = 0,scroll_show_start = 0, 
-    scroll_interval_time=61,
-    scroll_manual = 0, scroll_manual_step = 0;
+    scroll_interval_time=61;
 
 unsigned char alarm_id = 0, alarm_flag = 0; 
 
@@ -59,7 +59,7 @@ unsigned char alarm_select_flag = 0, alarm_open_flag = 0, alarm_select_sta = 0, 
 unsigned char seconds_counter=0, alarm_start_flag = 0;
 
 // Время нажатия на кнопки
-uint16_t set_press_cnt = 0, up_press_cnt = 0, down_press_cnt = 0;
+uint16_t set_putton_press_counter = 0, up_button_press_counter = 0, down_button_press_counter = 0;
 
 uint16_t Flashing_count = 0, whole_year, adc_count = 0, write_flag = 0;
 
@@ -77,14 +77,17 @@ unsigned char timing_mode_flag = 0, timing_mode_state = TIMING_OFF,
 unsigned char hourly_flag = 0, hourly_state = 0;
 
 // Time mode 
-unsigned char Time_set_mode_flag = 0,Time_set_mode_sta = 0; 
+unsigned char Set_time_mode_flag = 0,Time_set_mode_sta = 0; 
 
 // Мигалка времени 0 - выключен, 1 - включён
 unsigned char indicator_state = 0; 
+unsigned char network_indicator_state = 0;
+uint16_t network_indicator_counter = 0;
 
 #define MODE_SETTINGS  0
 #define MODE_CLOCK     1
 #define MODE_COUNTDOUN 2
+#define MODE_SCROLL    3
 unsigned char work_mode = MODE_CLOCK;
 
 char Time_buf[4];
@@ -100,7 +103,7 @@ unsigned char temperature_unit = 0;
 
 unsigned char temp_high, temp_low, get_add_high = 0x11, get_add_low = 0x12;
 
-extern app_state_t state;
+extern app_state_t network_state;
 //=============================================================================
 // 
 void get_temperature();
@@ -119,7 +122,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t);
 //
 bool repeating_timer_callback_us(struct repeating_timer *t);
 // Normal mode settings 
-void dis_set_mode(); 
+void display_setttings_mode(); 
 // Timekeeping Mode Settings
 void display_timing();
 // Alarm Mode Settings   
@@ -139,6 +142,8 @@ void display_adc_vcc();
 // Отображение версии
 void display_version();
 //
+void update_network_indicators();
+//
 void alarm_set(uint8_t UP_DOWN_flag);
 //
 void timing_set(uint8_t UP_DOWN_flag);
@@ -147,17 +152,15 @@ void time_set(uint8_t UP_DOWN_flag);
 //
 void scroll_show_judge();
 //
-void beep_start_judge(uint8_t repeat, uint16_t duration);
+void beep_start(uint8_t repeat, uint16_t duration);
 //
 void beep_stop_judge();
 //
-void flashing_start_judge();
+void flashing_judge();
 //
-void adc_show_count();
+void adc_show_judge();
 //
 void EXIT();
-//
-void special_exit();
 //=============================================================================
 struct repeating_timer timer2;
 //=============================================================================
@@ -220,7 +223,6 @@ int main(void)
         printf("WiFi init failed\n");
         return -1;
     }
-
     cyw43_arch_enable_sta_mode();
 
     beep_state = 1;
@@ -228,11 +230,18 @@ int main(void)
     hourly_state = 1;
     dis_hourly_on;
 
-    struct repeating_timer timer;
-    struct repeating_timer timer1;
+    temperature_unit = 1;
+    dis_C_on;
+    dis_F_off;
 
+    struct repeating_timer timer;
     add_repeating_timer_ms(1, repeating_timer_callback_ms, NULL, &timer);
+
+    struct repeating_timer timer1;
     add_repeating_timer_ms(1000, repeating_timer_callback_s, NULL, &timer1);
+
+    absolute_time_t next_reconnect_attempt = get_absolute_time();
+    uint8_t wifi_connect_attempts = 0;
 
     while(1)
     {
@@ -245,7 +254,7 @@ int main(void)
             adc_show_flag = 0;
             if(adc_show_time == 0)
             {
-                update_time = 1;
+                update_display = 1;
                 gpio_set_dir(SET_BUTTON,GPIO_IN);
                 gpio_set_dir(UP_BUTTON,GPIO_IN);
                 gpio_set_dir(DOWN_BUTTON,GPIO_IN);
@@ -256,12 +265,12 @@ int main(void)
         }
 
         // Set button is clicked, enter normal setting mode
-        if(KEY_Set_flag == 1) 
+        if(SET_key_flag == 1) 
         {
-            // printf("KEY_Set_flag\n");
+            // printf("SET_key_flag\n");
             no_operation_flag = true;
-            dis_set_mode();
-            KEY_Set_flag = 0;
+            display_setttings_mode();
+            SET_key_flag = 0;
         }
 
         // Long press to enter the alarm setting
@@ -273,12 +282,12 @@ int main(void)
             alarm_flag = 0;
         }
 
-        if(UP_Key_flag == 1)
+        if(UP_key_flag == 1)
         {
-            // printf("UP_Key_flag\n");
+            // printf("UP_key_flag\n");
             no_operation_flag = true;
             display_timing();
-            UP_Key_flag = 0;
+            UP_key_flag = 0;
         }
 
         switch (work_mode)
@@ -286,55 +295,79 @@ int main(void)
         case MODE_SETTINGS:
             break;
         case MODE_CLOCK:
-            if(update_time == 1)
+            if(update_display == 1)
             {
                 display_time();
-                update_time = 0;
+                update_display = 0;
             }
             break;
         case MODE_COUNTDOUN:
-            if(update_time == 1)
+            if(update_display == 1)
             {
                 display_timing();
-                update_time = 0;
+                update_display = 0;
             }
             break;
+        // case MODE_SCROLL:
+        //     if(update_display == 1)
+        //     {
+        //         display_scroll();
+        //         update_display = 0;
+        //     }
+        //     break;
         }
 
-        switch (state)
+        update_network_indicators();
+
+        switch (network_state)
         {
             case WIFI_DISCONNECTED:
-                if (wifi_connect()) {
-                    state = WIFI_CONNECTED;
-                } else {
-                    sleep_ms(RECONNECT_DELAY_MS);
+                if (wifi_connect_attempts >= 20) {
+                    break;
+                }
+
+                if (absolute_time_diff_us(get_absolute_time(), next_reconnect_attempt) <= 0) {
+                    wifi_connect_attempts++;
+                    if (wifi_connect()) {
+                        printf("WIFI_CONNECTED\n");
+                        wifi_connect_attempts = 0;
+                        network_state = WIFI_CONNECTED;
+                    } else {
+                        if (wifi_connect_attempts >= WIFI_TRY_LIMIT) {
+                            printf("WIFI_TRY_LIMIT\n");
+                        }
+                        next_reconnect_attempt = make_timeout_time_ms(WIFI_RECONNECT_DELAY_MS);
+                    }
                 }
                 break;
 
             case WIFI_CONNECTED:
-                if (tcp_client_connect()) {
-                    // state -> TCP_CONNECTING внутри
-                } else {
-                    sleep_ms(RECONNECT_DELAY_MS);
+                if (absolute_time_diff_us(get_absolute_time(), next_reconnect_attempt) <= 0) {
+                    if (tcp_client_connect()) {
+                        printf("TCP_CONNECTING\n");
+                        network_state = TCP_CONNECTING;
+                    } else {
+                        next_reconnect_attempt = make_timeout_time_ms(RECONNECT_DELAY_MS);
+                    }
                 }
-                break;
-
-            case TCP_CONNECTED:
-                // проверка линка WiFi
-                if (!cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA)) {
-                    printf("WiFi lost\n");
-                    state = WIFI_DISCONNECTED;
-                }
-                break;
-
-            case TCP_DISCONNECTED:
-                printf("Reconnecting TCP...\n");
-                sleep_ms(RECONNECT_DELAY_MS);
-                state = WIFI_CONNECTED;
                 break;
 
             case TCP_CONNECTING:
-                // ждём callback
+                break;
+
+            case TCP_CONNECTED:
+                break;
+
+            case TCP_DISCONNECTED:
+                printf("TCP_DISCONNECTED\n");
+                if (!cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA)) {
+                    printf("WIFI_DISCONNECTED\n");
+                    wifi_connect_attempts = 0;
+                    network_state = WIFI_DISCONNECTED;
+                } else {
+                    network_state = WIFI_CONNECTED;
+                }
+                next_reconnect_attempt = make_timeout_time_ms(RECONNECT_DELAY_MS);
                 break;
 
             default:
@@ -342,7 +375,7 @@ int main(void)
         }
 
         cyw43_arch_poll();
-        sleep_ms(50);
+        tight_loop_contents();
     }
 
     cyw43_arch_deinit();
@@ -371,7 +404,7 @@ void send_data(unsigned char data)
     }
 }
 
-// us
+// repeating_timer_callback_us - регулировка автояркости
 bool repeating_timer_callback_us(struct repeating_timer *t)
 {
     if(adc_light >3600)
@@ -406,26 +439,72 @@ bool repeating_timer_callback_us(struct repeating_timer *t)
     }
 }
 
-// 1ms enter once
+void switch_on_countdown_mode(unsigned char minute, unsigned char second)
+{
+    work_mode = MODE_COUNTDOUN;
+    timing_mode_state = TIMING_DOWN;
+    timing_DOWN_flag = true;
+    timing_DOWN_close_flag = false;
+
+    timing_minute_temp = minute;
+    timing_second_temp = second; 
+
+    dis_count_down_on;
+}
+
+void switch_off_countdown_mode()
+{
+    work_mode = MODE_CLOCK;
+    timing_mode_state = TIMING_OFF;
+    timing_DOWN_flag = false;
+    timing_DOWN_close_flag = true;
+
+    dis_count_down_off;
+}
+
+// repeating_timer_callback_ms
+// контроль яркости, продолжительных событий, нажатий на кнопки, отрисовка экрана
 bool repeating_timer_callback_ms(struct repeating_timer *t) {
-    adc_show_count(); 
+    adc_show_judge(); 
     beep_stop_judge();
-    flashing_start_judge(); 
+    flashing_judge(); 
     scroll_show_judge();
+
+    network_indicator_counter++;
+    if (network_indicator_counter >= 500)
+    {
+        network_indicator_counter = 0;
+        network_indicator_state = !network_indicator_state;
+    }
 
     //=========================================================================
     // Кнопка нажата
     if(gpio_get(SET_BUTTON) == 0) 
     {
-        set_press_cnt++;
+        set_putton_press_counter++;
     }
     // Кнопка отпущена
     else
     {
         // Короткое нажатие
-        if(set_press_cnt > 10 && set_press_cnt < 300)
+        if(set_putton_press_counter > 10 && set_putton_press_counter < 300)
         {
-            set_press_cnt = 0;
+            set_putton_press_counter = 0;
+
+            /*
+            if(work_mode == MODE_CLOCK)
+            {
+                work_mode = MODE_SCROLL;
+                scroll_state = 1;
+                dis_move_on;
+            }
+            else
+            {
+                work_mode = MODE_CLOCK;
+                scroll_state = 0;
+                dis_move_off;
+            }
+            */
 
             scroll_state = !scroll_state;
             if(scroll_state != 0)
@@ -447,17 +526,17 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
             // Enter timing setting mode
             else if(UP_id ==1)
             {
-                UP_Key_flag = 1;
+                UP_key_flag = 1;
             }  
 
             // Enter the normal setting mode 
             else
             {
                 // (external clock setting, key sound switch setting, scroll switch setting, clock display mode setting)
-                KEY_Set_flag = 1;
+                SET_key_flag = 1;
             }
 
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
 
             EXIT();
 
@@ -466,9 +545,9 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         }
         
         // Длинное нажатие и НЕ настройки
-        else if(set_press_cnt > 300 && setting_id == 0)
+        else if(set_putton_press_counter > 300 && setting_id == 0)
         {
-            set_press_cnt = 0;
+            set_putton_press_counter = 0;
 
             // НЕ настройки
             if(setting_id == 0)
@@ -478,24 +557,24 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 alarm_id = 1;
             }
 
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
         }
         
-        else set_press_cnt = 0;
+        else set_putton_press_counter = 0;
     }
 
     // Кнопка нажата
     if(gpio_get(UP_BUTTON) == 0) 
     {
-        up_press_cnt++;
+        up_button_press_counter++;
     }
     // Кнопка отпущена
     else
     {
         // Короткое нажатие
-        if(up_press_cnt > 10 && up_press_cnt < 300)
+        if(up_button_press_counter > 10 && up_button_press_counter < 300)
         {
-            up_press_cnt = 0;
+            up_button_press_counter = 0;
 
             no_operation_counter = 0;
 
@@ -548,7 +627,7 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 hourly_state = !hourly_state;
             }
 
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
 
             alarm_set(UP_flag);
 			timing_set(UP_flag);
@@ -556,36 +635,36 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         }
         
         // Длинное нажатие и НЕ настройки
-        else if(up_press_cnt > 300 && setting_id == 0)
+        else if(up_button_press_counter > 300 && setting_id == 0)
         {
-            up_press_cnt = 0;
+            up_button_press_counter = 0;
 
             // НЕ настройки
             if(setting_id == 0)
             {
                 setting_id++;
-                UP_Key_flag = 1;
+                UP_key_flag = 1;
                 UP_id = 1;
             }
 
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
         }
 
-        else up_press_cnt = 0;
+        else up_button_press_counter = 0;
     }
 
     // Кнопка нажата
     if(gpio_get(DOWN_BUTTON) == 0) 
     {
-       down_press_cnt++;
+       down_button_press_counter++;
     }
     // Кнопка отпущена
     else
     {
         // Короткое нажатие
-        if(down_press_cnt > 10 && down_press_cnt < 300)
+        if(down_button_press_counter > 10 && down_button_press_counter < 300)
         {
-            down_press_cnt = 0;
+            down_button_press_counter = 0;
 
             no_operation_counter = 0;
 
@@ -603,31 +682,13 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 //     dis_auto_light_off;
                 // }
 
-                if(scroll_manual)
+                if(work_mode != MODE_COUNTDOUN)
                 {
-                    scroll_manual_step = 1;
+                    switch_on_countdown_mode(0, 9);
                 }
                 else
                 {
-                    if(timing_mode_state == TIMING_OFF)
-                    {
-                        work_mode = MODE_COUNTDOUN;
-                        timing_mode_state = TIMING_DOWN;
-                        timing_DOWN_flag = true;
-                        timing_DOWN_close_flag = false;
-                        dis_count_down_on;
-
-                        timing_minute_temp = 0;
-                        timing_second_temp = 9; 
-                    }
-                    else
-                    {
-                        work_mode = MODE_CLOCK;
-                        timing_mode_state = TIMING_OFF;
-                        timing_DOWN_flag = false;
-                        timing_DOWN_close_flag = true;
-                        dis_count_down_off;
-                    }
+                    switch_off_countdown_mode();
                 }
             }
 
@@ -656,7 +717,7 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 hourly_state = !hourly_state;
             }
 
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
 
 			alarm_set(DOWN_flag);
 			timing_set(DOWN_flag);
@@ -664,18 +725,17 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         }
         
         // Длинное нажатие и настройки
-        else if(down_press_cnt > 300 && setting_id != 0)
+        else if(down_button_press_counter > 300 && setting_id != 0)
         {
-            down_press_cnt = 0;
+            down_button_press_counter = 0;
 
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
 
-            special_exit();
             EXIT();
 			setting_id = 0;
         }
         
-        else  down_press_cnt = 0;
+        else  down_button_press_counter = 0;
     }
 
     //=========================================================================
@@ -733,13 +793,13 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
     return true;
 }
 
-// 1s enter once
+// repeating_timer_callback_s - отсчёт часов, будильника, отсчётов
 bool repeating_timer_callback_s(struct repeating_timer *t) 
 {
     // Отрисовка часов
     indicator_state = !indicator_state;
-    // if(no_operation_flag == false && scroll_start_count == 0 && adc_show_time == 0){
-    //     update_time = 1;
+    // if(no_operation_flag == false && scroll_start_counter == 0 && adc_show_time == 0){
+    //     update_display = 1;
     // }
 
     // Работа будильника
@@ -771,9 +831,9 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
     {
         no_operation_counter++;
 
-        if(no_operation_counter == 10 ) // Exit setting mode if there is no operation within 10 seconds
+        // Exit setting mode if there is no operation within 10 seconds
+        if(no_operation_counter == 10 )
         {
-            special_exit();
             EXIT();
 
 			setting_id = 0;
@@ -811,10 +871,10 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
     }
 
     if(no_operation_flag == false && scroll_start == 0 && adc_show_time == 0){
-        update_time = 1;
+        update_display = 1;
     }
 
-    // Похоже на проверку таймера обратного отсчёта
+    // Проверка таймера обратного отсчёта
     if(timing_DOWN_flag == true)
     {
         // Если время по нулям - выключаем таймер
@@ -826,7 +886,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
             timing_DOWN_close_flag = true;
             dis_count_down_off;
 
-            beep_start_judge(10, 500);
+            beep_start(10, 500);
         }
         // Уменьшаем таймер
         else
@@ -854,6 +914,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
         }
     }
 
+    // Проверка таймера прямого отсчёта
     if(timing_UP_flag == true)
     {
         timing_second_temp ++;
@@ -874,18 +935,19 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
     }
 
     // Пищать каждый час
+    // TODO Работает с ошибкой - пищит в 01 минуту
     if(hourly_state == 1)
     {
         if(minute_temp == 0 && seconds_counter == 0)
         {            
-            beep_start_judge(1, 100);
+            beep_start(1, 100);
         }
     }
 
     return true;
 }
 
-// Display the day of the week
+// Отображение индикаторов недели
 void select_weekday(unsigned char x) 
 {
     switch(x)
@@ -910,7 +972,7 @@ void clear_display(unsigned char x)
     } while(x < sizeof(display_buffer));
 }
 
-// Отображение одного символа
+// Отображение одного символа в общем буфере
 void display_char(unsigned char x,unsigned char dis_char)
 {
     unsigned char i,j,k;
@@ -983,15 +1045,15 @@ void display_adc_vcc()
 // Отображение версии
 void display_version()
 {
-    display_char(0, '0');
-    display_char(5,'.');
-    display_char(7, '0');
-    display_char(12, '.');
-    display_char(14, '1');
+    display_char(3, '1');
+    display_char(8,'.');
+    display_char(10, '0');
+    display_char(15, '.');
+    display_char(17, '1');
 }
 
-// Переключение настроек
-void dis_set_mode() 
+// Отображение настроек
+void display_setttings_mode() 
 {
     if(setting_id < 3) // set hour and minute
     {
@@ -1085,13 +1147,14 @@ void dis_set_mode()
         clear_display(26);
 
     }
+    
     else if(setting_id == 8)
     {
-        if(Time_set_mode_flag == 0)
+        if(Set_time_mode_flag == 0)
         {
             Set_hour_temp = BCD_to_Byte(Time_RTC.hour);
         }
-        Time_set_mode_flag = 1;
+        Set_time_mode_flag = 1;
         display_char(0,'M');
         display_char(6,'D');
         display_char(11,'.');
@@ -1131,9 +1194,9 @@ void dis_set_mode()
     {
         no_operation_counter = 0;
         no_operation_flag = false;
-        KEY_Set_flag = 0;
+        SET_key_flag = 0;
         setting_id = 0;
-        update_time = 1;
+        update_display = 1;
         beep_flag = 0;
         scroll_flag = 0;
     }
@@ -1244,7 +1307,7 @@ void dis_alarm()
         setting_id = 0;
         alarm_flag = 0;
         alarm_id = 0;
-        update_time = 1;
+        update_display = 1;
         beep_flag = 0;
         scroll_flag = 0;
         alarm_select_flag = 0;
@@ -1402,8 +1465,8 @@ void display_timing()
         no_operation_flag = false;
         setting_id = 0;
         UP_id = 0;
-        UP_Key_flag = 0;
-        update_time = 1;
+        UP_key_flag = 0;
+        update_display = 1;
         beep_flag = 0;
         scroll_flag = 0;
         scroll_count = 0;
@@ -1411,7 +1474,7 @@ void display_timing()
     }
 }
 
-// Display time
+// Отображение времени
 void display_time()
 {
     // Get the value of RTC
@@ -1485,6 +1548,36 @@ void display_time()
     else if (Time_RTC.dayofweek==5){select_weekday(4);}
     else if (Time_RTC.dayofweek==6){select_weekday(5);}
     else select_weekday(6);
+}
+
+void update_network_indicators()
+{
+    if (network_state == WIFI_DISCONNECTED)
+    {
+        if (network_indicator_state) {
+            dis_AM_on;
+            dis_PM_on;
+        } else {
+            dis_AM_off;
+            dis_PM_off;
+        }
+        return;
+    }
+
+    dis_AM_on;
+
+    if (network_state == TCP_CONNECTED)
+    {
+        dis_PM_on;
+    }
+    else
+    {
+        if (network_indicator_state) {
+            dis_PM_on;
+        } else {
+            dis_PM_off;
+        }
+    }
 }
 
 // Отобразить бегущую строку - время - дата - температура
@@ -1565,6 +1658,8 @@ void display_scroll()
 
         display_buffer[i] = (display_buffer[i] & (~0x03)) | save_buf; // Restore function bit
     } 
+
+    scroll_show_start++;
 }
 
 // Determine the maximum number of days in a month
@@ -1634,7 +1729,8 @@ unsigned char get_weekday(uint16_t year_cnt,uint8_t month_cnt,uint8_t date_cnt)
 //
 void alarm_set(uint8_t UP_DOWN_flag)
 {
-	if(alarm_hour_flag == 1) // The alarm clock can set the flag bit
+    // The alarm clock can set the flag bit
+	if(alarm_hour_flag == 1) 
 	{
         if(UP_DOWN_flag == UP_flag)
         {
@@ -1662,7 +1758,8 @@ void alarm_set(uint8_t UP_DOWN_flag)
         }
 	}
 
-	if(alarm_open_flag == 1) // The alarm switch can set the flag bit
+    // The alarm switch can set the flag bit
+	if(alarm_open_flag == 1)
 	{
 		alarm_open_sta = !alarm_open_sta;
 		if(alarm_open_sta != 0)
@@ -1675,7 +1772,8 @@ void alarm_set(uint8_t UP_DOWN_flag)
 		}
 	}
 
-	if(alarm_select_flag == 1) // The alarm clock selection can set the flag bit
+    // The alarm clock selection can set the flag bit
+	if(alarm_select_flag == 1)
 	{
 		alarm_select_sta = ! alarm_select_sta;
 	}
@@ -1704,17 +1802,17 @@ void timing_set(uint8_t UP_DOWN_flag)
         if(UP_DOWN_flag == UP_flag)
         {
             timing_mode_state++;
-		    if(timing_mode_state == 3) timing_mode_state = 0;
+		    if(timing_mode_state > TIMING_OFF) timing_mode_state = TIMING_UP;
         }
         else
         {
             timing_mode_state--;
-            if(timing_mode_state == 255)timing_mode_state = 2;
+            if(timing_mode_state == 255)timing_mode_state = TIMING_OFF;
         }
 		
 	}
 
-	if(timing_mode_state == 1 && timing_minute_flag == 1)
+	if(timing_mode_state == TIMING_UP && timing_minute_flag == 1)
 	{
 		if(UP_DOWN_flag == UP_flag)
 		{
@@ -1728,7 +1826,7 @@ void timing_set(uint8_t UP_DOWN_flag)
 		}
 	}
 
-	if(timing_mode_state == 1 && timing_second_flag == 1)
+	if(timing_mode_state == TIMING_UP && timing_second_flag == 1)
 	{
 		if(UP_DOWN_flag == UP_flag)
 		{
@@ -1742,7 +1840,8 @@ void timing_set(uint8_t UP_DOWN_flag)
 		}
 	}
 
-	if(Time_set_mode_flag == 1) // time mode setting
+    // time mode setting
+	if(Set_time_mode_flag == 1)
 	{
 		Time_set_mode_sta = !Time_set_mode_sta;
 		if(Time_set_mode_sta == 0)
@@ -1894,8 +1993,8 @@ void time_set(uint8_t UP_DOWN_flag)
 	}
 }
 
-//
-void adc_show_count()
+// Сторож контроля АЦП
+void adc_show_judge()
 {
 	if(adc_light_flag != 0)
     {
@@ -1918,7 +2017,7 @@ void adc_show_count()
 }
 
 // Для запуска сигнала - запускается вручную
-void beep_start_judge(uint8_t repeat, uint16_t duration)
+void beep_start(uint8_t repeat, uint16_t duration)
 {
 	if(beep_state != 1)
     {
@@ -1935,7 +2034,7 @@ void beep_start_judge(uint8_t repeat, uint16_t duration)
     gpio_put(BUZZ, 1);
 }
 
-// Для остановки (мигания) сигнала - запускается по таймеру
+// Сторож остановки сигнала - запускается по таймеру
 void beep_stop_judge()
 {
     if(beep_on_flag == 0)
@@ -1964,8 +2063,8 @@ void beep_stop_judge()
     }
 }
 
-//
-void flashing_start_judge()
+// Сторож контроля режима мигания в настройках
+void flashing_judge()
 {
 	if(setting_id != 0)
 	{
@@ -1977,55 +2076,46 @@ void flashing_start_judge()
 
             if(alarm_id == 1)
                 alarm_flag = 1;
+
             else if(UP_id == 1)
-                UP_Key_flag = 1;
+                UP_key_flag = 1;
+
             else
-                KEY_Set_flag = 1;
+                SET_key_flag = 1;
         }
     }
 }
 
-//
+// Сторож сдвига бегущей строки
 void scroll_show_judge()
 {
-    if(scroll_manual)
+    if(scroll_start == 1)
     {
-        if(scroll_manual_step)
-        {
-            scroll_manual_step = 0;
-            scroll_start_count = scroll_speed;
-        }
-    }
-    else
-    {
-        if(scroll_start == 1)
-        {
-            scroll_start_count++;
-        }
+        scroll_start_counter++;
     }
 
-    if(scroll_start_count >= scroll_speed)
+    if(scroll_start_counter >= scroll_speed)
     {
         if(scroll_show_start < sizeof(display_buffer))
         {
+            // update_display = 1;
             display_scroll(); 
-
-            scroll_show_start++;
         }
         else
         {
-            display_char(24,' ');
+            // TODO Зачем?
+            // display_char(24,' ');
 
             scroll_start = 0;
             scroll_show_start = 0;
-            update_time = 1;
+            update_display = 1;
         }    
         
-        scroll_start_count = 0;
+        scroll_start_counter = 0;
     }
 }
 
-// Нахера?!
+// TODO Какой-то выход, зачем?
 void EXIT()
 {
 	if(Set_time_hour_flag ==1 && change_time_flag == 1)
@@ -2058,52 +2148,50 @@ void EXIT()
 		set_dayofweekday(get_weekday(whole_year,month_temp,dayofmonth_temp));
 		select_weekday(get_weekday(whole_year,month_temp,dayofmonth_temp)-1);
 	}
-
-    flag_Flashing[setting_id] = 0xff;
     
-    if(alarm_min_flag == 1) // prevent showing empty 
+    // prevent showing empty 
+    if(alarm_min_flag == 1)
     {
         display_char(13,(alarm_min_temp/10+'0')&flag_Flashing[4]);
         display_char(18,(alarm_min_temp%10+'0')&flag_Flashing[4]);
     }
 
-    if(timing_mode_flag == 1 && timing_mode_state == 2)
+    if(timing_mode_flag == 1 && timing_mode_state == TIMING_OFF)
     {
         display_char(13,'0'&flag_Flashing[1]);
         display_char(18,'F'&flag_Flashing[1]);
     }
 
-	no_operation_counter = 0;
-    scroll_flag = 0;
-	beep_flag = 0;
-	alarm_select_flag = 0;
-	alarm_open_flag = 0;
+    flag_Flashing[setting_id] = 0xff;
+
+    // Выход из всех настроек
+	alarm_flag = 0;
 	alarm_hour_flag = 0;
+	alarm_id = 0;
 	alarm_min_flag = 0;
-	timing_mode_flag = 0;
-	timing_minute_flag  = 0;
-	timing_second_flag = 0;
-	Time_set_mode_flag = 0;
-	hourly_flag = 0;
+	alarm_open_flag = 0;
+	alarm_select_flag = 0;
+    beep_flag = 0;
+    change_time_flag = 0;
+    hourly_flag = 0;
+    scroll_count = 0;
+	scroll_flag = 0;
+    SET_key_flag = 0;
+	Set_time_dayofmonth_flag = 0;
 	Set_time_hour_flag = 0;
 	Set_time_min_flag = 0;
-	Set_time_year_flag = 0;
 	Set_time_month_flag = 0;
-	Set_time_dayofmonth_flag = 0;
-	change_time_flag = 0;
-}
+	Set_time_year_flag = 0;
+    Set_time_mode_flag = 0;
+	timing_minute_flag  = 0;
+	timing_mode_flag = 0;
+	timing_second_flag = 0;
+    UP_id = 0;
+	UP_key_flag = 0;
 
-// А это тем-более нахера?!
-void special_exit()
-{
+	update_display = 1;
+	no_operation_counter = 0;
 	no_operation_flag = false;
-	KEY_Set_flag = 0;
-	alarm_flag = 0;
-	alarm_id = 0;
-	UP_id = 0;
-	UP_Key_flag = 0;
-	update_time = 1;
-	scroll_count = 0;
 }
 
 //

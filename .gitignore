@@ -8,3 +8,5 @@ generated/
 pico-sdk/
 Makefile
 .env
+server/.idea
+server/server
