@@ -1,0 +1,8 @@
+.git
+.gitignore
+.idea
+.DS_Store
+clock_server
+cover.out
+logs
+README.md

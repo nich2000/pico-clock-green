@@ -30,10 +30,17 @@ type Countdown struct {
 	Second int
 }
 
+type countdownKey string
+
 type connectionHub struct {
 	mu   sync.RWMutex
 	subs map[chan Countdown]struct{}
 }
+
+const (
+	countdownMinute countdownKey = "minute"
+	countdownSecond countdownKey = "second"
+)
 
 func main() {
 	_ = godotenv.Load(".env")
@@ -154,22 +161,30 @@ func acceptConnection(ctx context.Context, listener net.Listener, hub *connectio
 		}
 
 		log.Printf("[INFO] New connection: %v", conn.RemoteAddr())
-		go handleConnection(ctx, conn, hub)
+
+		wg.Add(1)
+		go handleConnection(ctx, conn, hub, wg)
 	}
 }
 
-func handleConnection(ctx context.Context, conn net.Conn, hub *connectionHub) {
+func handleConnection(ctx context.Context, conn net.Conn, hub *connectionHub, wg *sync.WaitGroup) {
+	defer wg.Done()
 	defer conn.Close()
 
 	countdownCh := hub.subscribe()
 	defer hub.unsubscribe(countdownCh)
 
 	readDone := make(chan error, 1)
+	connDone := make(chan struct{})
+	defer close(connDone)
 
 	go func() {
-		<-ctx.Done()
-		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			log.Printf("[ERROR] Error conn.Close, %v", err)
+		select {
+		case <-ctx.Done():
+			if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				log.Printf("[ERROR] Error conn.Close, %v", err)
+			}
+		case <-connDone:
 		}
 	}()
 
@@ -223,19 +238,24 @@ func handleNats(ctx context.Context, nc *nats.Conn, subj string, hub *connection
 
 		switch name {
 		case "countdown":
-			minute, err := countdownValue(kwargs, "minute")
+			minute, err := countdownValue(kwargs, countdownMinute)
 			if err != nil {
 				log.Printf("[ERROR] Invalid countdown minute, %v", err)
 				return
 			}
 
-			second, err := countdownValue(kwargs, "second")
+			second, err := countdownValue(kwargs, countdownSecond)
 			if err != nil {
 				log.Printf("[ERROR] Invalid countdown second, %v", err)
 				return
 			}
 
 			cd := Countdown{Minute: minute, Second: second}
+			if err := validateCountdown(cd); err != nil {
+				log.Printf("[ERROR] Invalid countdown payload, %v", err)
+				return
+			}
+
 			hub.broadcast(cd)
 			log.Printf("[INFO] Countdown: %v", cd)
 		default:
@@ -263,16 +283,19 @@ func handleNats(ctx context.Context, nc *nats.Conn, subj string, hub *connection
 	log.Println("[INFO] handleNats stopped")
 }
 
-func countdownValue(kwargs map[string]interface{}, key string) (int, error) {
-	value, ok := kwargs[key]
+func countdownValue(kwargs map[string]interface{}, key countdownKey) (int, error) {
+	value, ok := kwargs[string(key)]
 	if !ok {
 		return 0, fmt.Errorf("key %q is missing", key)
 	}
 
 	switch v := value.(type) {
 	case string:
-		value, _ := strconv.Atoi(v)
-		return value, nil
+		parsedValue, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("key %q has invalid integer value %q: %w", key, v, err)
+		}
+		return parsedValue, nil
 	case float64:
 		return int(v), nil
 	case float32:
@@ -284,6 +307,18 @@ func countdownValue(kwargs map[string]interface{}, key string) (int, error) {
 	default:
 		return 0, fmt.Errorf("key %q has unsupported type %T", key, value)
 	}
+}
+
+func validateCountdown(cd Countdown) error {
+	if cd.Minute < 0 {
+		return fmt.Errorf("minute must be >= 0, got %d", cd.Minute)
+	}
+
+	if cd.Second < 0 || cd.Second > 59 {
+		return fmt.Errorf("second must be between 0 and 59, got %d", cd.Second)
+	}
+
+	return nil
 }
 
 func writeMessage(conn net.Conn, message string) error {
