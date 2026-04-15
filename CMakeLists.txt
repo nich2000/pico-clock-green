@@ -27,7 +27,8 @@ pico_sdk_init()
 add_executable(Pico-Clock-Green
         Pico-Clock-Green.c Pico-Clock-Green.h
         Ds3231.c Ds3231.h
-        clock_tcp.c clock_tcp.h)
+        clock_tcp.c clock_tcp.h
+        clock_http.c clock_http.h)
 
 target_link_libraries(Pico-Clock-Green pico_stdlib hardware_i2c hardware_adc pico_cyw43_arch_lwip_poll)
 

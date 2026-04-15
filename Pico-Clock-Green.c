@@ -12,6 +12,7 @@
 #include "Ds3231.h"
 #include "ziku.h"
 #include "clock_tcp.h"
+#include "clock_http.h"
 #include "Pico-Clock-Green.h"
 //=============================================================================
 #define BAUD_RATE 115200
@@ -242,6 +243,7 @@ int main(void)
 
     absolute_time_t next_reconnect_attempt = get_absolute_time();
     uint8_t wifi_connect_attempts = 0;
+    bool http_started = false;
 
     while(1)
     {
@@ -342,6 +344,14 @@ int main(void)
                 break;
 
             case WIFI_CONNECTED:
+                if (!http_started) {
+                    if (http_server_start(80)) {
+                        printf("HTTP server started on port 80\n");
+                        http_started = true;
+                    } else {
+                        printf("HTTP server start failed\n");
+                    }
+                }
                 if (absolute_time_diff_us(get_absolute_time(), next_reconnect_attempt) <= 0) {
                     if (tcp_client_connect()) {
                         printf("TCP_CONNECTING\n");
@@ -364,6 +374,10 @@ int main(void)
                     printf("WIFI_DISCONNECTED\n");
                     wifi_connect_attempts = 0;
                     network_state = WIFI_DISCONNECTED;
+                    if (http_started) {
+                        http_server_stop();
+                        http_started = false;
+                    }
                 } else {
                     network_state = WIFI_CONNECTED;
                 }
@@ -378,6 +392,9 @@ int main(void)
         tight_loop_contents();
     }
 
+    if (http_started) {
+        http_server_stop();
+    }
     cyw43_arch_deinit();
     return 0;
 }
