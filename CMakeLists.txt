@@ -45,9 +45,17 @@ set(WIFI_SSID ${CMAKE_MATCH_1})
 string(REGEX MATCH "WIFI_PASSWORD=([^\n]+)" _ ${ENV_FILE})
 set(WIFI_PASSWORD ${CMAKE_MATCH_1})
 
+string(REGEX MATCH "SERVER_IP=([^\n]+)" _ ${ENV_FILE})
+set(SERVER_IP ${CMAKE_MATCH_1})
+
+string(REGEX MATCH "SERVER_PORT=([^\n]+)" _ ${ENV_FILE})
+set(SERVER_PORT ${CMAKE_MATCH_1})
+
 target_compile_definitions(Pico-Clock-Green PRIVATE
     WIFI_SSID=\"${WIFI_SSID}\"
     WIFI_PASSWORD=\"${WIFI_PASSWORD}\"
+    SERVER_IP=\"${SERVER_IP}\"
+    SERVER_PORT=${SERVER_PORT}
 )
 
 pico_enable_stdio_usb(Pico-Clock-Green 1)

@@ -10,3 +10,6 @@ Makefile
 .env
 server/.idea
 server/server
+server/clock_server
+server/logs
+server/vendor

@@ -74,7 +74,7 @@ unsigned char timing_mode_flag = 0, timing_mode_state = TIMING_OFF,
     timing_show_count = 0, timing_show_sec = 0;
 
 // Hourly time chime
-unsigned char hourly_flag = 0, hourly_state = 0;
+unsigned char hourly_flag = 0, hourly_state = 0, hourly_last_hour = 0xFF;
 
 // Time mode 
 unsigned char Set_time_mode_flag = 0,Time_set_mode_sta = 0; 
@@ -489,6 +489,8 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         // Короткое нажатие
         if(set_putton_press_counter > 10 && set_putton_press_counter < 300)
         {
+            beep_start(1, 100);
+
             set_putton_press_counter = 0;
 
             /*
@@ -536,8 +538,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 SET_key_flag = 1;
             }
 
-            beep_start(1, 100);
-
             EXIT();
 
             setting_id++;	
@@ -547,6 +547,8 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         // Длинное нажатие и НЕ настройки
         else if(set_putton_press_counter > 300 && setting_id == 0)
         {
+            beep_start(1, 300);
+
             set_putton_press_counter = 0;
 
             // НЕ настройки
@@ -556,8 +558,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 alarm_flag = 1;
                 alarm_id = 1;
             }
-
-            beep_start(1, 100);
         }
         
         else set_putton_press_counter = 0;
@@ -574,6 +574,8 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         // Короткое нажатие
         if(up_button_press_counter > 10 && up_button_press_counter < 300)
         {
+            beep_start(1, 100);
+
             up_button_press_counter = 0;
 
             no_operation_counter = 0;
@@ -627,8 +629,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 hourly_state = !hourly_state;
             }
 
-            beep_start(1, 100);
-
             alarm_set(UP_flag);
 			timing_set(UP_flag);
 			time_set(UP_flag);
@@ -637,6 +637,8 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         // Длинное нажатие и НЕ настройки
         else if(up_button_press_counter > 300 && setting_id == 0)
         {
+            beep_start(1, 300);
+
             up_button_press_counter = 0;
 
             // НЕ настройки
@@ -646,8 +648,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 UP_key_flag = 1;
                 UP_id = 1;
             }
-
-            beep_start(1, 100);
         }
 
         else up_button_press_counter = 0;
@@ -664,6 +664,8 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         // Короткое нажатие
         if(down_button_press_counter > 10 && down_button_press_counter < 300)
         {
+            beep_start(1, 100);
+
             down_button_press_counter = 0;
 
             no_operation_counter = 0;
@@ -684,7 +686,7 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
 
                 if(work_mode != MODE_COUNTDOUN)
                 {
-                    switch_on_countdown_mode(0, 9);
+                    switch_on_countdown_mode(3, 0);
                 }
                 else
                 {
@@ -717,8 +719,6 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 hourly_state = !hourly_state;
             }
 
-            beep_start(1, 100);
-
 			alarm_set(DOWN_flag);
 			timing_set(DOWN_flag);
 			time_set(DOWN_flag);
@@ -727,9 +727,9 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
         // Длинное нажатие и настройки
         else if(down_button_press_counter > 300 && setting_id != 0)
         {
-            down_button_press_counter = 0;
+            beep_start(1, 300);
 
-            beep_start(1, 100);
+            down_button_press_counter = 0;
 
             EXIT();
 			setting_id = 0;
@@ -793,7 +793,8 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
     return true;
 }
 
-// repeating_timer_callback_s - отсчёт часов, будильника, отсчётов
+// repeating_timer_callback_s
+// отсчёт часов, будильника, отсчётов
 bool repeating_timer_callback_s(struct repeating_timer *t) 
 {
     // Отрисовка часов
@@ -934,16 +935,6 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
         }
     }
 
-    // Пищать каждый час
-    // TODO Работает с ошибкой - пищит в 01 минуту
-    if(hourly_state == 1)
-    {
-        if(minute_temp == 0 && seconds_counter == 0)
-        {            
-            beep_start(1, 100);
-        }
-    }
-
     return true;
 }
 
@@ -1045,11 +1036,11 @@ void display_adc_vcc()
 // Отображение версии
 void display_version()
 {
-    display_char(3, '1');
-    display_char(8,'.');
-    display_char(10, '0');
-    display_char(15, '.');
-    display_char(17, '1');
+    display_char(3,  CLOCK_VERSION[0]);
+    display_char(8,  CLOCK_VERSION[1]);
+    display_char(10, CLOCK_VERSION[2]);
+    display_char(15, CLOCK_VERSION[3]);
+    display_char(17, CLOCK_VERSION[4]);
 }
 
 // Отображение настроек
@@ -1477,6 +1468,8 @@ void display_timing()
 // Отображение времени
 void display_time()
 {
+    unsigned char current_second;
+
     // Get the value of RTC
     Time_RTC=Read_RTC(); 
     
@@ -1491,9 +1484,22 @@ void display_time()
 
     Set_hour_temp = BCD_to_Byte(Time_RTC.hour);
     minute_temp = BCD_to_Byte(Time_RTC.minutes);
+    current_second = BCD_to_Byte(Time_RTC.seconds);
     dayofmonth_temp = BCD_to_Byte(Time_RTC.dayofmonth);
     month_temp = BCD_to_Byte(Time_RTC.month);
     year_temp = BCD_to_Byte(Time_RTC.year);
+
+    // Почасовой сигнал нужно проверять по реальному времени из RTC,
+    // а не по программному счётчику секунд, который не синхронизирован с минутой.
+    if(hourly_state == 1 && minute_temp == 0 && current_second == 0)
+    {
+        if(hourly_last_hour != Set_hour_temp)
+        {
+            beep_start(2, 50);
+
+            hourly_last_hour = Set_hour_temp;
+        }
+    }
     
     // When changing the time, you need to pay attention to the current time mode
     if(Time_set_mode_sta != 0)

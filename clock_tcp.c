@@ -71,18 +71,18 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
     }
     memcpy(buffer, p->payload, copy_len);
     buffer[copy_len] = '\0';
+    // printf("Received: %s\n", buffer);
 
-    printf("Received: %s\n", buffer);
-
-    // TODO: обработка команд
-    // пример:
     unsigned char minute = 0;
     unsigned char second = 0;
     if (sscanf(buffer, "COUNTDOWN ON %hhu %hhu", &minute, &second) == 2) {
+        printf("%s\n", buffer);
+
         switch_on_countdown_mode(minute, second);
-    } else if (strncmp(buffer, "COUNTDOWN ON", 12) == 0) {
-        switch_on_countdown_mode(0, 10);
+
     } else if (strncmp(buffer, "COUNTDOWN OFF", 13) == 0) {
+        printf("%s\n", buffer);
+
         switch_off_countdown_mode();
     }
 
@@ -105,7 +105,7 @@ static err_t tcp_connected_cb(void *arg, struct tcp_pcb *tpcb, err_t err)
 
     tcp_recv(tpcb, tcp_recv_cb);
 
-    static const char hello_msg[] = "HELLO\r\n\0";
+    static const char hello_msg[] = "HELLO " CLOCK_VERSION "\r\n\0";
 
     err_t write_err = tcp_write(tpcb, hello_msg, sizeof(hello_msg) - 1, TCP_WRITE_FLAG_COPY);
     if (write_err != ERR_OK) {
@@ -120,8 +120,8 @@ static err_t tcp_connected_cb(void *arg, struct tcp_pcb *tpcb, err_t err)
         network_state = TCP_DISCONNECTED;
         return output_err;
     }
-    printf("Sent: %s\n", hello_msg);
-    
+    printf("%s\n", hello_msg);
+
     network_state = TCP_CONNECTED;
 
     return ERR_OK;
@@ -141,7 +141,7 @@ bool tcp_client_connect()
     tcp_arg(client_pcb, NULL);
     tcp_err(client_pcb, tcp_err_cb);
 
-    printf("Connecting to server %s...\n", SERVER_IP);
+    printf("Connecting to server %s:%d...\n", SERVER_IP, SERVER_PORT);
 
     err_t err = tcp_connect(client_pcb, &server_ip, SERVER_PORT, tcp_connected_cb);
     if (err != ERR_OK) {
