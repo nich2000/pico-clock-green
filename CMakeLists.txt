@@ -38,19 +38,23 @@ target_include_directories(Pico-Clock-Green PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
 )
 
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/.env"
+)
+
 file(READ "${CMAKE_CURRENT_LIST_DIR}/.env" ENV_FILE)
 
-string(REGEX MATCH "WIFI_SSID=([^\n]+)" _ ${ENV_FILE})
-set(WIFI_SSID ${CMAKE_MATCH_1})
+string(REGEX MATCH "(^|\n)WIFI_SSID=([^\n]+)" _ "${ENV_FILE}")
+set(WIFI_SSID ${CMAKE_MATCH_2})
 
-string(REGEX MATCH "WIFI_PASSWORD=([^\n]+)" _ ${ENV_FILE})
-set(WIFI_PASSWORD ${CMAKE_MATCH_1})
+string(REGEX MATCH "(^|\n)WIFI_PASSWORD=([^\n]+)" _ "${ENV_FILE}")
+set(WIFI_PASSWORD ${CMAKE_MATCH_2})
 
-string(REGEX MATCH "SERVER_IP=([^\n]+)" _ ${ENV_FILE})
-set(SERVER_IP ${CMAKE_MATCH_1})
+string(REGEX MATCH "(^|\n)SERVER_IP=([^\n]+)" _ "${ENV_FILE}")
+set(SERVER_IP ${CMAKE_MATCH_2})
 
-string(REGEX MATCH "SERVER_PORT=([^\n]+)" _ ${ENV_FILE})
-set(SERVER_PORT ${CMAKE_MATCH_1})
+string(REGEX MATCH "(^|\n)SERVER_PORT=([^\n]+)" _ "${ENV_FILE}")
+set(SERVER_PORT ${CMAKE_MATCH_2})
 
 target_compile_definitions(Pico-Clock-Green PRIVATE
     WIFI_SSID=\"${WIFI_SSID}\"

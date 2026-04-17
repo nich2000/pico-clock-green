@@ -1,5 +1,7 @@
 #include "clock_tcp.h"
 #include "Pico-Clock-Green.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/netif.h"
 
 app_state_t network_state = WIFI_DISCONNECTED;
 struct tcp_pcb *client_pcb = NULL;
@@ -51,7 +53,8 @@ bool wifi_connect()
         return false;
     }
 
-    printf("WiFi connected\n");
+    const ip4_addr_t *ip = netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]);
+    printf("WiFi connected, IP: %s\n", ip4addr_ntoa(ip));
     return true;
 }
 
