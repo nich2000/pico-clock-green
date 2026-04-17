@@ -31,8 +31,8 @@ unsigned char row_select = 0;
 unsigned char UP_id=0, UP_key_flag=0, SET_key_flag=0, no_operation_flag = false, no_operation_counter; 
 
 // Set automatic brightness
-uint16_t adc_light, adc_light_count = 0;  
-unsigned char adc_light_flag = 0, adc_light_time_flag = 0, light_set = 0;
+uint16_t adc_light, adc_light_count = 0;
+unsigned char adc_light_flag = 0, light_set = 0;
 
 // Флаг необходимости обновить данные
 unsigned char update_display = 0;
@@ -96,6 +96,8 @@ char Time_buf[4];
 unsigned char i,jr,save_buf,adc_show_flag = 0,adc_show_time = 6;
 
 TIME_RTC Time_RTC;
+volatile unsigned char rtc_refresh_pending = 1, temp_refresh_pending = 1, scroll_step_pending = 0, network_indicator_dirty = 1;
+unsigned char temperature_refresh_counter = 0;
 
 unsigned char flag_Flashing[11]={0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 
@@ -120,8 +122,6 @@ void select_weekday(unsigned char x);
 bool repeating_timer_callback_ms(struct repeating_timer *t);
  // 1s callback function 
 bool repeating_timer_callback_s(struct repeating_timer *t);
-//
-bool repeating_timer_callback_us(struct repeating_timer *t);
 // Normal mode settings 
 void display_setttings_mode(); 
 // Timekeeping Mode Settings
@@ -162,8 +162,6 @@ void flashing_judge();
 void adc_show_judge();
 //
 void EXIT();
-//=============================================================================
-struct repeating_timer timer2;
 //=============================================================================
 // GPIO initialization
 int port_init(void) 
@@ -244,9 +242,30 @@ int main(void)
     absolute_time_t next_reconnect_attempt = get_absolute_time();
     uint8_t wifi_connect_attempts = 0;
     bool http_started = false;
+    app_state_t last_network_state = network_state;
+    unsigned char last_network_indicator_state = network_indicator_state;
 
     while(1)
     {
+        if (rtc_refresh_pending)
+        {
+            Time_RTC = Read_RTC();
+            rtc_refresh_pending = 0;
+            update_display = 1;
+        }
+
+        if (temp_refresh_pending && temperature_unit > 0)
+        {
+            get_temperature();
+            temp_refresh_pending = 0;
+        }
+
+        if (scroll_step_pending)
+        {
+            display_scroll();
+            scroll_step_pending = 0;
+        }
+
         if(adc_show_flag == 1)
         {
             // printf("Show version\n");
@@ -319,7 +338,13 @@ int main(void)
         //     break;
         }
 
-        update_network_indicators();
+        if (network_indicator_dirty || last_network_state != network_state || last_network_indicator_state != network_indicator_state)
+        {
+            update_network_indicators();
+            network_indicator_dirty = 0;
+            last_network_state = network_state;
+            last_network_indicator_state = network_indicator_state;
+        }
 
         switch (network_state)
         {
@@ -421,41 +446,6 @@ void send_data(unsigned char data)
     }
 }
 
-// repeating_timer_callback_us - регулировка автояркости
-bool repeating_timer_callback_us(struct repeating_timer *t)
-{
-    if(adc_light >3600)
-    {
-        light_set ++;
-        if(light_set == 15)
-        {
-            OE_OPEN;
-            light_set = 0;
-        }
-        else
-        {
-            OE_CLOSE;
-        }
-    }
-    else if(adc_light >2800)
-    {
-        light_set ++;
-        if(light_set == 3)
-        {
-            OE_OPEN;
-            light_set = 0;
-        }
-        else
-        {
-            OE_CLOSE;
-        }
-    }
-    else
-    {
-        OE_OPEN;
-    }
-}
-
 void switch_on_countdown_mode(unsigned char minute, unsigned char second)
 {
     work_mode = MODE_COUNTDOUN;
@@ -467,6 +457,7 @@ void switch_on_countdown_mode(unsigned char minute, unsigned char second)
     timing_second_temp = second; 
 
     dis_count_down_on;
+    update_display = 1;
 }
 
 void switch_off_countdown_mode()
@@ -477,6 +468,7 @@ void switch_off_countdown_mode()
     timing_DOWN_close_flag = true;
 
     dis_count_down_off;
+    update_display = 1;
 }
 
 // repeating_timer_callback_ms
@@ -492,6 +484,7 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
     {
         network_indicator_counter = 0;
         network_indicator_state = !network_indicator_state;
+        network_indicator_dirty = 1;
     }
 
     //=========================================================================
@@ -609,14 +602,20 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
                 case 0:
                     dis_C_off;
                     dis_F_off;
+                    temp_refresh_pending = 0;
+                    temperature_refresh_counter = 0;
                     break;
                 case 1:
                     dis_C_on;
                     dis_F_off;
+                    temp_refresh_pending = 1;
+                    temperature_refresh_counter = 0;
                     break;
                 case 2:
                     dis_C_off;
                     dis_F_on;
+                    temp_refresh_pending = 1;
+                    temperature_refresh_counter = 0;
                     break;
                 }
             }
@@ -756,21 +755,7 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
     }
 
     //=========================================================================
-    // AutoLight
-    if(adc_light_flag != 0 && adc_light_time_flag == 1)
-    {
-        cancel_repeating_timer(&timer2);
-        OE_CLOSE;
-    }
-    else
-    {
-        if(adc_light_time_flag == 1)
-        {
-            adc_light_time_flag = 0;
-            cancel_repeating_timer(&timer2);
-        }
-        OE_CLOSE;
-    }
+    OE_CLOSE;
 
     // row select - 0 - 7
     row_select++;
@@ -796,14 +781,32 @@ bool repeating_timer_callback_ms(struct repeating_timer *t) {
 
     if(row_select & 0x04)A2_HIGH; else A2_LOW;
 
-    // AutoLight
     if(adc_light_flag != 0)
     {
-        adc_light_time_flag = 1;
-        add_repeating_timer_us(50, repeating_timer_callback_us, NULL, &timer2);
+        uint8_t brightness_period = 1;
+        if(adc_light > 3600)
+        {
+            brightness_period = 15;
+        }
+        else if(adc_light > 2800)
+        {
+            brightness_period = 3;
+        }
+
+        light_set++;
+        if(light_set >= brightness_period)
+        {
+            light_set = 0;
+        }
+
+        if(light_set == 0)
+        {
+            OE_OPEN;
+        }
     }
     else
     {
+        light_set = 0;
         OE_OPEN;
     }
 
@@ -816,6 +819,7 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
 {
     // Отрисовка часов
     indicator_state = !indicator_state;
+    rtc_refresh_pending = 1;
     // if(no_operation_flag == false && scroll_start_counter == 0 && adc_show_time == 0){
     //     update_display = 1;
     // }
@@ -950,6 +954,21 @@ bool repeating_timer_callback_s(struct repeating_timer *t)
             timing_show_count = 0;
             timing_show_sec = timing_second_temp;
         }
+    }
+
+    if(temperature_unit > 0)
+    {
+        temperature_refresh_counter++;
+        if(temperature_refresh_counter >= 30)
+        {
+            temperature_refresh_counter = 0;
+            temp_refresh_pending = 1;
+        }
+    }
+    else
+    {
+        temperature_refresh_counter = 0;
+        temp_refresh_pending = 0;
     }
 
     return true;
@@ -1487,9 +1506,6 @@ void display_time()
 {
     unsigned char current_second;
 
-    // Get the value of RTC
-    Time_RTC=Read_RTC(); 
-    
     display_char(0,'1');
 
     Time_RTC.seconds = Time_RTC.seconds & 0x7F;
@@ -1549,7 +1565,7 @@ void display_time()
     Time_buf[2]=((Time_RTC.minutes/16)+'0');
     Time_buf[3]=((Time_RTC.minutes%16)+'0');
     
-    seconds_counter=((float)Time_RTC.seconds)/1.5; // Calculate the number of seconds in the current RTC
+    seconds_counter = (current_second * 2) / 3;
     
     if(scroll_start == 0)
     {
@@ -1623,8 +1639,6 @@ void display_scroll()
 
         if(temperature_unit > 0)
         {
-            get_temperature();
-
             if(temperature_unit == 1)
             {
                 display_char(85, temp_high/10+0x30);
@@ -2121,8 +2135,7 @@ void scroll_show_judge()
     {
         if(scroll_show_start < sizeof(display_buffer))
         {
-            // update_display = 1;
-            display_scroll(); 
+            scroll_step_pending = 1;
         }
         else
         {

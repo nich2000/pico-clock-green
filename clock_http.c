@@ -20,6 +20,7 @@ extern app_state_t network_state;
 
 static struct tcp_pcb *http_listen_pcb = NULL;
 static bool http_running = false;
+static bool http_static_responses_ready = false;
 
 typedef struct http_conn_state {
     const uint8_t *resp;
@@ -28,13 +29,22 @@ typedef struct http_conn_state {
     bool owns_resp;
 } http_conn_state_t;
 
+static uint8_t INDEX_RESPONSE[512];
+static size_t INDEX_RESPONSE_LEN = 0;
+static uint8_t APP_CSS_RESPONSE[512];
+static size_t APP_CSS_RESPONSE_LEN = 0;
+static uint8_t APP_JS_RESPONSE[2048];
+static size_t APP_JS_RESPONSE_LEN = 0;
+static uint8_t NOT_FOUND_RESPONSE[256];
+static size_t NOT_FOUND_RESPONSE_LEN = 0;
+
 static const char INDEX_HTML[] =
     "<!doctype html><html><head><meta charset=\"utf-8\"/>"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
     "<title>Pico Clock</title>"
     "<link rel=\"stylesheet\" href=\"/app.css?v=" CLOCK_VERSION "\">"
     "</head><body>"
-    "<canvas id=\"c\" width=\"22\" height=\"7\"></canvas>"
+    "<canvas id=\"c\" width=\"220\" height=\"70\"></canvas>"
     "<script src=\"/app.js?v=" CLOCK_VERSION "\"></script>"
     "</body></html>";
 
@@ -49,12 +59,19 @@ static const char APP_CSS[] =
 static const char APP_JS[] =
     "const c=document.getElementById('c');"
     "const ctx=c.getContext('2d');"
-    "let lastBuf=null;" // Between network fetches we blink ':' locally.
-    "let blinkOn=true;" // ':' in firmware is drawn at x=10 (before disp_offset=2) => screen x=12.
-    "const COLON_X0=9, COLON_X1=11, COLON_Y0=1, COLON_Y1=5;"  // Frontend cropping hides sx<2 and sy==0, so ':' ends up roughly around px=10.
-    "function draw(buf, showColon){"
+    "let lastBuf=null;"
+    "const GRID_W=22, GRID_H=7, CELL=10, PAD=1, PIX=8;"
+    "const COLON_TOP_X=10, COLON_TOP_Y=1, COLON_BOTTOM_X=10, COLON_BOTTOM_Y=4;"
+    "function fillPixel(x,y){"
+    "  const ox=x*CELL+PAD;"
+    "  const oy=y*CELL+PAD;"
+    "  ctx.fillRect(ox,oy,PIX,PIX);"
+    "}"
+    "function draw(buf){"
     "  ctx.clearRect(0,0,c.width,c.height);"
-    "  const img=ctx.getImageData(0,0,c.width,c.height);"
+    "  ctx.fillStyle='rgb(245,248,245)';"
+    "  ctx.fillRect(0,0,c.width,c.height);"
+    "  ctx.fillStyle='rgb(0,200,0)';"
     "  for(let x=0;x<3;x++){"
     "    for(let row=0;row<8;row++){"
     "      const b=buf[x*8+row];"
@@ -66,21 +83,24 @@ static const char APP_JS[] =
     "        if(sx<2) continue;"            // hide 2 tech columns
     "        const px=sx-2;"
     "        const py=sy-1;"
-    "        if(!showColon && px>=COLON_X0 && px<=COLON_X1 && py>=COLON_Y0 && py<=COLON_Y1) continue;"
-    "        const idx=(py*c.width+px)*4;"
-    "        img.data[idx+0]=on?0:255;"
-    "        img.data[idx+1]=on?200:255;"
-    "        img.data[idx+2]=on?0:255;"
-    "        img.data[idx+3]=255;"
+    "        if(on) fillPixel(px,py);"
     "      }"
     "    }"
     "  }"
-    "  ctx.putImageData(img,0,0);"
+    "  for(let x=COLON_TOP_X;x<COLON_TOP_X+2;x++){"
+    "    for(let y=COLON_TOP_Y;y<COLON_TOP_Y+2;y++){"
+    "      fillPixel(x,y);"
+    "    }"
+    "  }"
+    "  for(let x=COLON_BOTTOM_X;x<COLON_BOTTOM_X+2;x++){"
+    "    for(let y=COLON_BOTTOM_Y;y<COLON_BOTTOM_Y+2;y++){"
+    "      fillPixel(x,y);"
+    "    }"
+    "  }"
     "}"
     "function repaint(){"
-    "  if(lastBuf) draw(lastBuf, blinkOn);"
+    "  if(lastBuf) draw(lastBuf);"
     "}"
-    "setInterval(()=>{ blinkOn=!blinkOn; repaint(); }, 1000);"
     "async function tick(){"
     "  try{"
     "    const rbuf=await fetch('/api/buf',{cache:'no-store'});"
@@ -217,6 +237,63 @@ static uint8_t *http_build_response_ex(const char *content_type,
     return resp;
 }
 
+static bool http_build_static_response(uint8_t *dest,
+                                       size_t dest_size,
+                                       const char *content_type,
+                                       const char *cache_control,
+                                       const uint8_t *body,
+                                       size_t body_len,
+                                       size_t *out_len)
+{
+    char hdr[256];
+    int hn = snprintf(hdr, sizeof(hdr),
+                      "HTTP/1.1 200 OK\r\n"
+                      "Content-Type: %s\r\n"
+                      "Cache-Control: %s\r\n"
+                      "Connection: close\r\n"
+                      "Content-Length: %u\r\n"
+                      "\r\n",
+                      content_type,
+                      cache_control ? cache_control : "no-store",
+                      (unsigned)body_len);
+    if (hn <= 0) return false;
+
+    size_t total = (size_t)hn + body_len;
+    if (total > dest_size) return false;
+
+    memcpy(dest, hdr, (size_t)hn);
+    if (body_len) memcpy(dest + hn, body, body_len);
+    if (out_len) *out_len = total;
+    return true;
+}
+
+static bool http_prepare_static_responses(void)
+{
+    if (http_static_responses_ready) return true;
+
+    static const uint8_t BODY_404[] = "Not Found";
+
+    bool ok = true;
+    ok = ok && http_build_static_response(INDEX_RESPONSE, sizeof(INDEX_RESPONSE),
+                                          "text/html; charset=utf-8", "no-store",
+                                          (const uint8_t *)INDEX_HTML, sizeof(INDEX_HTML) - 1,
+                                          &INDEX_RESPONSE_LEN);
+    ok = ok && http_build_static_response(APP_CSS_RESPONSE, sizeof(APP_CSS_RESPONSE),
+                                          "text/css; charset=utf-8", "public, max-age=86400",
+                                          (const uint8_t *)APP_CSS, sizeof(APP_CSS) - 1,
+                                          &APP_CSS_RESPONSE_LEN);
+    ok = ok && http_build_static_response(APP_JS_RESPONSE, sizeof(APP_JS_RESPONSE),
+                                          "application/javascript; charset=utf-8", "public, max-age=86400",
+                                          (const uint8_t *)APP_JS, sizeof(APP_JS) - 1,
+                                          &APP_JS_RESPONSE_LEN);
+    ok = ok && http_build_static_response(NOT_FOUND_RESPONSE, sizeof(NOT_FOUND_RESPONSE),
+                                          "text/plain; charset=utf-8", "no-store",
+                                          BODY_404, sizeof(BODY_404) - 1,
+                                          &NOT_FOUND_RESPONSE_LEN);
+    http_static_responses_ready = ok;
+    return ok;
+}
+
 static uint8_t *http_build_response(const char *content_type, const uint8_t *body, size_t body_len, size_t *out_len)
 {
     return http_build_response_ex(content_type, "no-store", body, body_len, out_len);
@@ -239,43 +316,26 @@ static bool http_set_response_and_send(struct tcp_pcb *tpcb, http_conn_state_t *
 
 static bool http_queue_404(struct tcp_pcb *tpcb, http_conn_state_t *st)
 {
-    static const uint8_t BODY[] = "Not Found";
-    uint8_t *resp = http_build_response("text/plain; charset=utf-8", BODY, sizeof(BODY) - 1, &st->resp_len);
-    if (!resp) return false;
-    return http_set_response_and_send(tpcb, st, resp, st->resp_len, true);
+    if (!http_prepare_static_responses()) return false;
+    return http_set_response_and_send(tpcb, st, NOT_FOUND_RESPONSE, NOT_FOUND_RESPONSE_LEN, false);
 }
 
 static bool http_queue_index(struct tcp_pcb *tpcb, http_conn_state_t *st)
 {
-    size_t resp_len = 0;
-    uint8_t *resp = http_build_response_ex("text/html; charset=utf-8", "no-store",
-                                        (const uint8_t *)INDEX_HTML,
-                                        sizeof(INDEX_HTML) - 1,
-                                        &resp_len);
-    if (!resp) return false;
-    return http_set_response_and_send(tpcb, st, resp, resp_len, true);
+    if (!http_prepare_static_responses()) return false;
+    return http_set_response_and_send(tpcb, st, INDEX_RESPONSE, INDEX_RESPONSE_LEN, false);
 }
 
 static bool http_queue_app_css(struct tcp_pcb *tpcb, http_conn_state_t *st)
 {
-    size_t resp_len = 0;
-    uint8_t *resp = http_build_response_ex("text/css; charset=utf-8", "public, max-age=86400",
-                                          (const uint8_t *)APP_CSS,
-                                          sizeof(APP_CSS) - 1,
-                                          &resp_len);
-    if (!resp) return false;
-    return http_set_response_and_send(tpcb, st, resp, resp_len, true);
+    if (!http_prepare_static_responses()) return false;
+    return http_set_response_and_send(tpcb, st, APP_CSS_RESPONSE, APP_CSS_RESPONSE_LEN, false);
 }
 
 static bool http_queue_app_js(struct tcp_pcb *tpcb, http_conn_state_t *st)
 {
-    size_t resp_len = 0;
-    uint8_t *resp = http_build_response_ex("application/javascript; charset=utf-8", "public, max-age=86400",
-                                          (const uint8_t *)APP_JS,
-                                          sizeof(APP_JS) - 1,
-                                          &resp_len);
-    if (!resp) return false;
-    return http_set_response_and_send(tpcb, st, resp, resp_len, true);
+    if (!http_prepare_static_responses()) return false;
+    return http_set_response_and_send(tpcb, st, APP_JS_RESPONSE, APP_JS_RESPONSE_LEN, false);
 }
 
 static bool http_queue_state(struct tcp_pcb *tpcb, http_conn_state_t *st)
@@ -479,4 +539,3 @@ bool http_server_is_running(void)
 {
     return http_running;
 }
-
