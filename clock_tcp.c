@@ -1,5 +1,6 @@
 #include "clock_tcp.h"
 #include "Pico-Clock-Green.h"
+#include <strings.h>
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
 
@@ -38,6 +39,81 @@ static void tcp_err_cb(void *arg, err_t err)
     tcp_reset_connection_state();
 }
 
+static void trim_command(char *command)
+{
+    size_t len;
+
+    while (*command == ' ' || *command == '\t') {
+        memmove(command, command + 1, strlen(command));
+    }
+
+    len = strlen(command);
+    while (len > 0) {
+        char ch = command[len - 1];
+        if (ch != ' ' && ch != '\t') {
+            break;
+        }
+        command[len - 1] = '\0';
+        len--;
+    }
+}
+
+static void process_tcp_command(char *command)
+{
+    unsigned char hour = 0;
+    unsigned char minute = 0;
+    unsigned char second_value = 0;
+    unsigned char second = 0;
+    unsigned char repeat = 0;
+    unsigned short duration = 0;
+
+    trim_command(command);
+    if (command[0] == '\0') {
+        return;
+    }
+
+    if (sscanf(command, "COUNTDOWN ON %hhu %hhu", &minute, &second) == 2) {
+        printf("%s\n", command);
+        switch_on_countdown_mode(minute, second);
+        return;
+    }
+
+    if (strncasecmp(command, "COUNTDOWN OFF", 13) == 0) {
+        printf("%s\n", command);
+        switch_off_countdown_mode();
+        return;
+    }
+
+    if (sscanf(command, "beep %hhu %hu", &repeat, &duration) == 2 ||
+        sscanf(command, "BEEP %hhu %hu", &repeat, &duration) == 2) {
+        printf("BEEP from TCP: repeat=%u duration=%u\n", repeat, duration);
+        beep_start(repeat, duration);
+        return;
+    }
+
+    if (sscanf(command, "clock %hhu %hhu %hhu", &hour, &minute, &second_value) == 3 ||
+        sscanf(command, "CLOCK %hhu %hhu %hhu", &hour, &minute, &second_value) == 3) {
+        if (set_clock_time_from_network(hour, minute, second_value)) {
+            printf("RTC updated from TCP: %02u:%02u:%02u\n", hour, minute, second_value);
+        } else {
+            printf("Invalid clock command: %s\n", command);
+        }
+        return;
+    }
+
+    if (sscanf(command, "clock %hhu %hhu", &hour, &minute) == 2 ||
+        sscanf(command, "CLOCK %hhu %hhu", &hour, &minute) == 2) {
+        if (set_clock_time_from_network(hour, minute, 0)) {
+            printf("RTC updated from TCP: %02u:%02u:%02u\n", hour, minute, 0);
+        } else {
+            printf("Invalid clock command: %s\n", command);
+        }
+        return;
+    }
+
+    printf("Unknown TCP command: %s\n", command);
+}
+
 bool wifi_connect()
 {
     printf("Connecting to WiFi %s...\n", WIFI_SSID);
@@ -66,30 +142,29 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t 
         return ERR_OK;
     }
 
-    // Получение данных
     char buffer[128] = {0};
-    uint16_t copy_len = p->len;
+    uint16_t copy_len = p->tot_len;
     if (copy_len >= sizeof(buffer)) {
         copy_len = sizeof(buffer) - 1;
     }
-    memcpy(buffer, p->payload, copy_len);
+    pbuf_copy_partial(p, buffer, copy_len, 0);
     buffer[copy_len] = '\0';
-    // printf("Received: %s\n", buffer);
 
-    unsigned char minute = 0;
-    unsigned char second = 0;
-    if (sscanf(buffer, "COUNTDOWN ON %hhu %hhu", &minute, &second) == 2) {
-        printf("%s\n", buffer);
-
-        switch_on_countdown_mode(minute, second);
-
-    } else if (strncmp(buffer, "COUNTDOWN OFF", 13) == 0) {
-        printf("%s\n", buffer);
-
-        switch_off_countdown_mode();
+    char *line = buffer;
+    while (line && *line != '\0') {
+        char *next = strpbrk(line, "\r\n");
+        if (next) {
+            *next = '\0';
+            next++;
+            while (*next == '\r' || *next == '\n') {
+                next++;
+            }
+        }
+        process_tcp_command(line);
+        line = next;
     }
 
-    tcp_recved(tpcb, p->len);
+    tcp_recved(tpcb, p->tot_len);
     pbuf_free(p);
 
     return ERR_OK;

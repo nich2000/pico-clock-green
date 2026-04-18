@@ -471,6 +471,35 @@ void switch_off_countdown_mode()
     update_display = 1;
 }
 
+bool set_clock_time_from_network(unsigned char hour, unsigned char minute, unsigned char second)
+{
+    TIME_RTC rtc_now;
+
+    if (hour > 23 || minute > 59 || second > 59) {
+        return false;
+    }
+
+    rtc_now = Read_RTC();
+    rtc_now.dayofweek &= 0x07;
+    rtc_now.dayofmonth &= 0x3F;
+    rtc_now.month &= 0x1F;
+
+    Set_Time(
+        second,
+        minute,
+        hour,
+        BCD_to_Byte(rtc_now.dayofweek),
+        BCD_to_Byte(rtc_now.dayofmonth),
+        BCD_to_Byte(rtc_now.month),
+        BCD_to_Byte(rtc_now.year)
+    );
+
+    Time_RTC = Read_RTC();
+    update_display = 1;
+
+    return true;
+}
+
 // repeating_timer_callback_ms
 // контроль яркости, продолжительных событий, нажатий на кнопки, отрисовка экрана
 bool repeating_timer_callback_ms(struct repeating_timer *t) {
