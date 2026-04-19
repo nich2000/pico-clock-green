@@ -111,7 +111,11 @@ static void process_tcp_command(char *command)
         return;
     }
 
-    printf("Unknown TCP command: %s\n", command);
+    // if(command == NULL || strncasecmp(command, "PING", 4) == 0) {
+    //     return;
+    // }
+
+    // printf("Unknown TCP command: %s\n", command);
 }
 
 bool wifi_connect()
